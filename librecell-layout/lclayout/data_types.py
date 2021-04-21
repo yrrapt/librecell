@@ -16,6 +16,7 @@ from enum import Enum
 from itertools import islice, tee, chain, product
 from copy import deepcopy
 from typing import Any, Set, Tuple
+import numpy
 
 
 class ChannelType(Enum):
@@ -91,6 +92,17 @@ class Cell:
         self.width = width
         self.upper = [None] * width
         self.lower = [None] * width
+
+    def as_array(self) -> numpy.ndarray:
+        """
+        Return a two-dimensional array which holds the transistors at their locations.
+        :return: Numpy ndarray.
+        """
+
+        return numpy.array([
+            self.lower,
+            self.upper
+        ])
 
     def get_transistor_locations(self) -> Set[Tuple[Transistor, Tuple[int, int]]]:
         """ Get a list of all transistors together with their location.

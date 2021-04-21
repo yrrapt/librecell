@@ -30,7 +30,9 @@ transistor_channel_width_sizing = 1
 
 # GDS2 layer numbers for final output.
 my_ndiffusion = (1, 0)
+my_nplus = (1, 1)
 my_pdiffusion = (1, 7)
+my_pplus = (1, 8)
 my_nwell = (2, 0)
 my_nwell2 = (2, 1)
 my_pwell = (2, 7)
@@ -53,6 +55,8 @@ my_abutment_box = (200, 0)
 output_map = {
     l_ndiffusion: my_ndiffusion,
     l_pdiffusion: my_pdiffusion,
+    l_nplus: my_nplus,
+    l_pplus: my_pplus,
     l_nwell: [my_nwell, my_nwell2],  # Map l_nwell to two output layers.
     l_pwell: [my_pwell],  # Output layer for pwell. Uncomment this if needed. For instance for twin-well processes.
     l_poly: my_poly,
