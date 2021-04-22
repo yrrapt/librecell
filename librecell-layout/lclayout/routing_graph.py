@@ -276,24 +276,51 @@ def extract_terminal_nodes(graph: nx.Graph,
 
     return terminals_by_net
 
+#
+# def embed_terminal_nodes(G: nx.Graph, terminals: Iterable[Tuple[str, str, Tuple[int, int]]], tech):
+#     for net, layer, (x, y) in terminals:
+#
+#         logger.info(f"Terminal node {net} {layer} {(x, y)}")
+#
+#         # Insert terminal into G.
+#         next_x = grid_round(x, tech.routing_grid_pitch_x, tech.grid_offset_x)
+#
+#         assert next_x == x, Exception("Terminal node not x-aligned.")
+#
+#         x_aligned_nodes = [(l, (_x, y)) for l, (_x, y) in G if l == layer and _x == x]
+#
+#         def dist(a, b):
+#             _, (x1, y1) = a
+#             _, (x2, y2) = b
+#             return (x1 - x2) ** 2 + (y1 - y2) ** 2
+#
+#         if x_aligned_nodes:
+#             neighbour_node = min(x_aligned_nodes, key=lambda n: dist(n, t))
+#
+#             # TODO: weight proportional to gate width?
+#             G.add_edge(t, neighbour_node, weight=1000, wire_width=tech.gate_length)
+#             coords.append((x, y))
+#         else:
+#             logger.debug(f"No neighbour node for terminal with net `{net}` of transistor {transistor.name}.")
+
 
 def embed_transistor_terminal_nodes(G: nx.Graph,
-                                    terminals_by_net: List[Tuple[str, str, List[Tuple[int, int]]]],
                                     transistor_layouts: Dict[Transistor, TransistorLayout],
-                                    tech):
+                                    tech) -> List[Tuple[str, str, Tuple[int, int]]]:
     """ Embed the terminal nodes of a the transistors into the routing graph.
     Modifies `G` and `terminals_by_net`
     :param G: The routing graph.
-    :param terminals_by_net:
     :param transistor_layouts: List[TransistorLayout]
     :param tech: module containing technology information
-    :return: None
+    :return: Returns terminal nodes as a list like List[(netname, layer, coordinates)]
     """
+    terminals_by_net = []
     # Connect terminal nodes of transistor gates in G.
     for transistor, t_layout in transistor_layouts.items():
         terminals = t_layout.terminal_nodes()
         for net, ts in terminals.items():
-            coords = [] # Coordinates of inserted terminal nodes.
+            coords = []  # Coordinates of inserted terminal nodes.
+            layer = None
             for t in ts:
                 layer, (x, y) = t
 
@@ -320,7 +347,11 @@ def embed_transistor_terminal_nodes(G: nx.Graph,
                 else:
                     logger.debug(f"No neighbour node for terminal with net `{net}` of transistor {transistor.name}.")
 
-            terminals_by_net.append((net, layer, coords))
+            if coords:
+                assert layer is not None
+                terminals_by_net.append((net, layer, coords))
+
+    return terminals_by_net
 
 
 def create_virtual_terminal_nodes(G: nx.Graph,

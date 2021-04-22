@@ -162,6 +162,8 @@ layermap = {
     l_pwell: (2, 0),
     l_ndiffusion: (3, 0),
     l_pdiffusion: (4, 0),
+    l_nplus: (3, 1),
+    l_pplus: (4, 1),
     l_poly: (5, 0),
     l_pdiff_contact: (6, 0),
     l_ndiff_contact: (6, 1),

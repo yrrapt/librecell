@@ -126,6 +126,10 @@ min_spacing = {
     (l_pdiffusion, l_ndiffusion): 50,
     (l_ndiffusion, l_poly_contact): 10,
     (l_pdiffusion, l_poly_contact): 10,
+    (l_ndiffusion, l_pplus): 10,
+    (l_pdiffusion, l_nplus): 10,
+    (l_nwell, l_pplus): 10,
+    (l_pwell, l_nplus): 10,
     (l_nwell, l_nwell): 50,
     (l_nwell, l_pwell): 0,  # This might be used when n-well and p-well layers are used for a twin-well process.
     (l_pwell, l_pwell): 50,
@@ -222,6 +226,8 @@ minimum_enclosure = {
     # Via enclosure
     (l_ndiffusion, l_ndiff_contact): 10,
     (l_pdiffusion, l_pdiff_contact): 10,
+    (l_nwell, l_nplus): 10,
+    (l_pwell, l_pplus): 10,
     (l_poly, l_poly_contact): 10,
     (l_metal1, l_ndiff_contact): 10,
     (l_metal1, l_pdiff_contact): 10,

@@ -247,6 +247,9 @@ class LcLayout:
         # Pin definitions.
         self._pin_shapes = defaultdict(list)
 
+    def get_min_spacing(self, layer1, layer2, default=0):
+        return self._spacing_graph[layer1][layer2]['min_spacing']
+
     def _00_00_check_tech(self):
         # Assert that the layers in the keys of multi_via are ordered.
         for l1, l2 in self.tech.multi_via.keys():
@@ -397,7 +400,7 @@ class LcLayout:
         terminals_by_net = extract_terminal_nodes(G, self.shapes, tech)
 
         # Embed transistor terminal nodes in to routing graph.
-        embed_transistor_terminal_nodes(G, terminals_by_net, self._transistor_layouts, tech)
+        terminals_by_net.extend(embed_transistor_terminal_nodes(G, self._transistor_layouts, tech))
 
         # Remove terminals of nets with only one terminal. They need not be routed.
         # This can happen if a net is already connected by abutment of two transistors.
@@ -534,6 +537,41 @@ class LcLayout:
 
         # Merge the polygons on all layers.
         _merge_all_layers(self.shapes)
+
+    def _08_2_insert_well_taps(self):
+        spacing_graph = self._spacing_graph
+
+        ntap_size = (100, 100)
+        ntap_keepout_layers = [l_pdiffusion, l_poly, l_metal1]
+
+        ptap_size = (100, 100)
+        ptap_keepout_layers = [l_ndiffusion, l_poly, l_metal1]
+
+        def find_tap_locations(tap_layer, well_layer, keepout_layers, tap_size):
+            # Find potential locations for well-taps.
+            tap_locations = db.Region(self.shapes[well_layer])
+
+            # Cannot place the well-tap under poly or metal1 nor inside the diffusion area.
+            for l in keepout_layers:
+                r = db.Region(self.shapes[l])
+                tap_locations -= r
+
+            if tap_layer in spacing_graph:
+                for other_layer in spacing_graph[tap_layer]:
+                    min_spacing = spacing_graph[tap_layer][other_layer]['min_spacing']
+                    r = db.Region(self.shapes[other_layer])
+                    r.size(min_spacing)
+                    tap_locations -= r
+
+            tap_locations.size(-tap_size[0], -tap_size[1])
+
+            return tap_locations
+
+        ntap_locations = find_tap_locations(l_nplus, l_nwell, ntap_keepout_layers, ntap_size)
+        ptap_locations = find_tap_locations(l_pplus, l_pwell, ptap_keepout_layers, ptap_size)
+
+        self.shapes[l_nplus].insert(ntap_locations)
+        self.shapes[l_pplus].insert(ptap_locations)
 
     def _09_post_process(self):
         tech = self.tech
@@ -769,6 +807,7 @@ class LcLayout:
         self._05_draw_cell_template()
         self._06_route()
         self._08_draw_routes()
+        self._08_2_insert_well_taps()
         self._09_post_process()
 
         return self.top_cell, self._pin_shapes
