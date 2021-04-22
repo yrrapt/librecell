@@ -547,8 +547,16 @@ class LcLayout:
         ptap_size = (100, 100)
         ptap_keepout_layers = [l_ndiffusion, l_poly, l_metal1]
 
-        def find_tap_locations(tap_layer, well_layer, keepout_layers, tap_size):
-            # Find potential locations for well-taps.
+        def find_tap_locations(tap_layer, well_layer, keepout_layers, tap_size) -> db.Region:
+            """
+            Find potential locations for well-taps.
+            Returns a region object which marks all possible locations of the center of the tap.
+            :param tap_layer: The layer which will hold the tap (nplus or pplus).
+            :param well_layer: The well layer where the tap should be placed.
+            :param keepout_layers: Layers that block taps.
+            :param tap_size: (w, h) size of the tap.
+            :return:
+            """
             tap_locations = db.Region(self.shapes[well_layer])
 
             # Cannot place the well-tap under poly or metal1 nor inside the diffusion area.
@@ -562,6 +570,12 @@ class LcLayout:
                     r = db.Region(self.shapes[other_layer])
                     r.size(min_spacing)
                     tap_locations -= r
+
+            for (outer, inner), min_enc in self.tech.minimum_enclosure.items():
+                if inner == tap_layer:
+                    o = db.Region(self.shapes(outer))
+                    o.size(-min_enc)
+                    tap_locations &= min_enc
 
             tap_locations.size(-tap_size[0], -tap_size[1])
 
