@@ -559,6 +559,9 @@ class LcLayout:
             """
             tap_locations = db.Region(self.shapes[well_layer])
 
+            min_enc = self.tech.minimum_enclosure.get((well_layer, tap_layer), 0)
+            tap_locations.size(-min_enc)
+
             # Cannot place the well-tap under poly or metal1 nor inside the diffusion area.
             for l in keepout_layers:
                 r = db.Region(self.shapes[l])
@@ -570,12 +573,12 @@ class LcLayout:
                     r = db.Region(self.shapes[other_layer])
                     r.size(min_spacing)
                     tap_locations -= r
-
-            for (outer, inner), min_enc in self.tech.minimum_enclosure.items():
-                if inner == tap_layer:
-                    o = db.Region(self.shapes(outer))
-                    o.size(-min_enc)
-                    tap_locations &= min_enc
+            #
+            # for (outer, inner), min_enc in self.tech.minimum_enclosure.items():
+            #     if inner == tap_layer:
+            #         o = db.Region(self.shapes[outer])
+            #         o.size(-min_enc)
+            #         tap_locations &= o
 
             tap_locations.size(-tap_size[0], -tap_size[1])
 
