@@ -276,6 +276,7 @@ def extract_terminal_nodes(graph: nx.Graph,
 
     return terminals_by_net
 
+
 #
 # def embed_terminal_nodes(G: nx.Graph, terminals: Iterable[Tuple[str, str, Tuple[int, int]]], tech):
 #     for net, layer, (x, y) in terminals:

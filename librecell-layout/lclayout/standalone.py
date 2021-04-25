@@ -11,12 +11,10 @@
 #
 # Source location: https://codeberg.org/tok/librecell
 #
-from itertools import chain
-from collections import Counter, defaultdict
-import numpy
-import toml
+
 import json
 import os
+from typing import Tuple, Optional, Dict, List
 
 from lccommon import net_util
 from lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
@@ -32,17 +30,23 @@ from .graphrouter.hv_router import HVGraphRouter
 from .graphrouter.pathfinder import PathFinderGraphRouter
 from .graphrouter.signal_router import DijkstraRouter, ApproxSteinerTreeRouter
 
-from .layout.transistor import *
+from .router import DefaultRouter
+
+from .layout.transistor import TransistorLayout, DefaultTransistorLayout, ChannelType
+from .layout.layers import *
 from .layout import cell_template
 from .layout.notch_removal import fill_notches
-
-from .routing_graph import *
+from . import tech_util
+from collections import defaultdict
 
 from .drc_cleaner import drc_cleaner
 from .lvs import lvs
+import logging
 
 # klayout.db should not be imported if script is run from KLayout GUI.
-if 'pya' not in sys.modules:
+try:
+    import pya
+except ImportError as e:
     import klayout.db as pya
 
 logger = logging.getLogger(__name__)
@@ -71,129 +75,6 @@ def _draw_label(shapes, layer, pos: Tuple[int, int], text: str) -> None:
     x, y = pos
     # shapes[layer].insert(pya.Text.new(text, pya.Trans(x, y), 0.1, 2))
     shapes[layer].insert(pya.Text.new(text, x, y))
-
-
-def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
-                       G: nx.Graph,
-                       rt: nx.Graph,
-                       tech,
-                       debug_routing_graph: bool = False):
-    """ Draw a routing graph into a layout.
-    :param shapes: Mapping from layer name to pya.Shapes object
-    :param G: Full graph of routing grid
-    :param rt: Graph representing the wires
-    :param tech: module containing technology information
-    :param debug_routing_graph: Draw narrower wires for easier visual inspection
-    :return:
-    """
-
-    def is_virtual_node(n):
-        return n[0].startswith('virtual')
-
-    def is_virtual_edge(e):
-        return is_virtual_node(e[0]) or is_virtual_node(e[1])
-
-    logger.debug("Drawing wires")
-
-    # Loop through all edges of the routing tree and draw them individually.
-    for a, b in rt.edges:
-
-        if not is_virtual_edge((a, b)):
-
-            l1, (x1, y1) = a
-            l2, (x2, y2) = b
-
-            data = G[a][b]
-
-            if l1 == l2:
-                # On the same layer -> wire
-
-                w = data.get('wire_width', tech.wire_width[l1])
-
-                ext = w // 2
-
-                is_horizontal = y1 == y2 and x1 != x2
-
-                if is_horizontal:
-                    w = tech.wire_width_horizontal[l1]
-
-                if debug_routing_graph:
-                    w = min(tech.routing_grid_pitch_x, tech.routing_grid_pitch_y) // 16
-
-                path = pya.Path([pya.Point(x1, y1), pya.Point(x2, y2)], w, ext, ext)
-                shapes[l1].insert(path)
-            else:
-                # l1 != l1 -> this looks like a via
-                assert x1 == x2
-                assert y1 == y2
-                # Draw via
-                via_layer = via_layers[l1][l2]['layer']
-                logger.debug('Draw via: {} ({}, {})'.format(via_layer, x1, y1))
-
-                via_width = tech.via_size[via_layer]
-
-                if debug_routing_graph:
-                    via_width = min(tech.routing_grid_pitch_x, tech.routing_grid_pitch_y) // 16
-
-                w = via_width // 2
-                via = pya.Box(pya.Point(x1 - w, y1 - w),
-                              pya.Point(x1 + w, y1 + w))
-                shapes[via_layer].insert(via)
-
-                # Ensure minimum via enclosure.
-                if not debug_routing_graph:
-                    for l in (l1, l2):
-                        # TODO: Check on which sides minimum enclosure is not yet satisfied by some wire.
-
-                        neighbors = rt.neighbors((l, (x1, y1)))
-                        neighbors = [n for n in neighbors if n[0] == l]
-
-                        w_ext = via_width // 2 + tech.minimum_enclosure[(l, via_layer)]
-                        w_noext = via_width // 2
-
-                        # Check on which sides the enclosure must be extended.
-                        # Some sides will already be covered by a routing wire.
-                        ext_right = w_ext
-                        ext_upper = w_ext
-                        ext_left = w_ext
-                        ext_lower = w_ext
-                        # TODO
-                        # for _, (n_x, n_y) in neighbors:
-                        #     if n_x == x1:
-                        #         if n_y < y1:
-                        #             ext_lower = w_noext
-                        #         if n_y > y1:
-                        #             ext_upper = w_noext
-                        #     if n_y == y1:
-                        #         if n_x < x1:
-                        #             ext_left = w_noext
-                        #         if n_x > x1:
-                        #             ext_right = w_noext
-
-                        enc = pya.Box(
-                            pya.Point(x1 - ext_left, y1 - ext_lower),
-                            pya.Point(x1 + ext_right, y1 + ext_upper)
-                        )
-                        shapes[l].insert(enc)
-
-
-def _is_virtual_node_fn(n) -> bool:
-    """
-    Check if the node is virtual and has no direct physical representation.
-    :param n:
-    :return:
-    """
-    return n[0].startswith('virtual')
-
-
-def _is_virtual_edge_fn(e) -> bool:
-    """
-    Check if the edge connects to at least one virtual node.
-    :param n:
-    :return:
-    """
-    a, b = e
-    return _is_virtual_node_fn(a) or _is_virtual_node_fn(b)
 
 
 class LcLayout:
@@ -373,170 +254,25 @@ class LcLayout:
         self._pin_shapes[self.GND_NET].append((tech.power_layer, vss_rail))
 
     def _06_route(self):
+        router = DefaultRouter(
+            graph_router=self.router,
+            debug_routing_graph=self.debug_routing_graph,
+            tech=self.tech
+        )
 
-        # TODO: Move as much as possible of the grid construction into a router specific class.
-        tech = self.tech
-
-        # Construct two dimensional grid which defines the routing graph on a single layer.
-        grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
-                      (
-                          tech.grid_offset_x + self._cell_width - tech.grid_offset_x,
-                          tech.grid_offset_y + tech.unit_cell_height),
-                      (tech.routing_grid_pitch_x, tech.routing_grid_pitch_y))
-
-        # Create base graph
-        G = create_routing_graph_base(grid, tech)
-
-        # Remove illegal routing nodes from graph and get a dict of legal routing nodes per layer.
-        remove_illegal_routing_edges(G, self.shapes, tech)
-
-        # if not debug_routing_graph:
-        #     assert nx.is_connected(G)
-
-        # Remove pre-routed edges from G.
-        remove_existing_routing_edges(G, self.shapes, tech)
-
-        # Create a list of terminal areas: [(net, layer, [terminal, ...]), ...]
-        terminals_by_net = extract_terminal_nodes(G, self.shapes, tech)
-
-        # Embed transistor terminal nodes in to routing graph.
-        terminals_by_net.extend(embed_transistor_terminal_nodes(G, self._transistor_layouts, tech))
-
-        # Remove terminals of nets with only one terminal. They need not be routed.
-        # This can happen if a net is already connected by abutment of two transistors.
-        # Count terminals of a net.
-        num_appearance = Counter(chain((net for net, _, _ in terminals_by_net), self.io_pins))
-        terminals_by_net = [t for t in terminals_by_net if num_appearance[t[0]] > 1]
-
-        # Check if each net really has a routing terminal.
-        # It can happen that there is none due to spacing issues.
-        # First find all net names in the layout.
-        all_net_names = {s.property('net') for _, _shapes in self.shapes.items() for s in _shapes.each()}
-        all_net_names -= {None}
-
-        error = False
-        # Check if each net has at least a terminal.
-        for net_name in all_net_names:
-            num_terminals = num_appearance.get(net_name)
-            if num_terminals is None or num_terminals == 0:
-                logger.error("Net '{}' has no routing terminal.".format(net_name))
-                error = True
-
-        if not self.debug_routing_graph:
-            assert not error, "Nets without terminals. Check the routing graph (--debug-routing-graph)!"
-
-        # Create virtual graph nodes for each net terminal.
-        virtual_terminal_nodes = create_virtual_terminal_nodes(G, terminals_by_net, self.io_pins, tech)
-
-        if self.debug_routing_graph:
-            # Display terminals on layout.
-            routing_terminal_shapes = {
-                l: self.top_cell.shapes(self._routing_terminal_debug_layers[l]) for l in tech.routing_layers.keys()
-            }
-            for net, layer, ts in terminals_by_net:
-                for x, y in ts:
-                    d = tech.routing_grid_pitch_x // 16
-                    routing_terminal_shapes[layer].insert(pya.Box(pya.Point(x - d, y - d), pya.Point(x + d, y + d)))
-
-        # Remove nodes that will not be used for routing.
-        # Iteratively remove nodes of degree 1.
-        while True:
-            unused_nodes = set()
-            for n in G:
-                if nx.degree(G, n) <= 1:
-                    if not _is_virtual_node_fn(n):
-                        unused_nodes.add(n)
-            if len(unused_nodes) == 0:
-                break
-            G.remove_nodes_from(unused_nodes)
-
-        if not nx.is_connected(G):
-            assert False, 'Routing graph is not connected.'
-
-        self._routing_graph = G
-
-        # TODO: SPLIT HERE
-        # def _07_route(self):
-
-        tech = self.tech
-        spacing_graph = self._spacing_graph
-        G = self._routing_graph
-
-        # Route
-        if self.debug_routing_graph:
-            # Write the full routing graph to GDS.
-            logger.info("Skip routing and plot routing graph.")
-            self._routing_trees = {'graph': self._routing_graph}
-        else:
-            logger.info("Start routing")
-            # For each routing node find other nodes that are close enough that they cannot be used
-            # both for routing. This is used to avoid spacing violations during routing.
-            logger.debug("Find conflicting nodes.")
-            conflicts = dict()
-            # Loop through all nodes in the routing graph G.
-            for n in G:
-                # Skip virtual nodes which have no physical representation.
-                if not _is_virtual_node_fn(n):
-                    layer, point = n
-                    wire_width1 = tech.wire_width.get(layer, 0) // 2
-                    node_conflicts = set()
-                    if layer in spacing_graph:
-                        # If there is a spacing rule defined involving `layer` then
-                        # loop through all layers that have a spacing rule defined
-                        # relative to the layer of the current node n.
-                        for other_layer in spacing_graph[layer]:
-                            if other_layer in tech.routing_layers:
-                                # Find minimal spacing of nodes such that spacing rule is asserted.
-                                wire_width2 = tech.wire_width.get(other_layer, 0) // 2
-                                min_spacing = spacing_graph[layer][other_layer]['min_spacing']
-                                margin = (wire_width1 + wire_width2 + min_spacing)
-
-                                # Find nodes that are closer than the minimal spacing.
-                                # conflict_points = grid.neigborhood(point, margin, norm_ord=1)
-                                potential_conflicts = [x for x in G if x[0] == other_layer]
-                                conflict_points = [p for (_, p) in potential_conflicts
-                                                   if numpy.linalg.norm(numpy.array(p) - numpy.array(point),
-                                                                        ord=1) < margin
-                                                   ]
-                                # Construct the lookup table for conflicting nodes.
-                                for p in conflict_points:
-                                    conflict_node = other_layer, p
-                                    if conflict_node in G:
-                                        node_conflicts.add(conflict_node)
-                    if node_conflicts:
-                        conflicts[n] = node_conflicts
-
-            # Find routing nodes that are reserved for a net. They cannot be used to route other nets.
-            # (For instance the ends of a gate stripe.)
-            reserved_nodes = defaultdict(set)
-            for net, layer, terminals in terminals_by_net:
-                for p in terminals:
-                    n = layer, p
-                    reserved = reserved_nodes[net]
-                    reserved.add(n)
-                    if n in conflicts:
-                        for c in conflicts[n]:  # Also reserve nodes that would cause a spacing violation.
-                            reserved.add(c)
-
-            assert nx.is_connected(G)
-
-            # Invoke router and store result.
-            self._routing_trees = self.router.route(G,
-                                                    signals=virtual_terminal_nodes,
-                                                    reserved_nodes=reserved_nodes,
-                                                    node_conflict=conflicts,
-                                                    is_virtual_node_fn=_is_virtual_node_fn
-                                                    )
-
-            # TODO: Sanity check on result.
+        self._routing_trees = router.route(self.shapes, io_pins=self.io_pins,
+                                           transistor_layouts=self._transistor_layouts,
+                                           routing_terminal_debug_layers=self._routing_terminal_debug_layers,
+                                           top_cell=self.top_cell)
 
     def _08_draw_routes(self):
-        # Draw the layout of the routes.
-        for signal_name, rt in self._routing_trees.items():
-            _draw_routing_tree(self.shapes, self._routing_graph, rt, self.tech, self.debug_routing_graph)
-
-        # Merge the polygons on all layers.
-        _merge_all_layers(self.shapes)
+        pass
+        # # Draw the layout of the routes.
+        # for signal_name, rt in self._routing_trees.items():
+        #     _draw_routing_tree(self.shapes, self._routing_graph, rt, self.tech, self.debug_routing_graph)
+        #
+        # # Merge the polygons on all layers.
+        # _merge_all_layers(self.shapes)
 
     def _08_2_insert_well_taps(self):
         spacing_graph = self._spacing_graph
@@ -584,11 +320,20 @@ class LcLayout:
 
             return tap_locations
 
+        # Find regions where it is feasible to place well-taps.
         ntap_locations = find_tap_locations(l_nplus, l_nwell, ntap_keepout_layers, ntap_size)
         ptap_locations = find_tap_locations(l_pplus, l_pwell, ptap_keepout_layers, ptap_size)
 
+        # Visualize the regions in the layout.
         self.shapes[l_nplus].insert(ntap_locations)
         self.shapes[l_pplus].insert(ptap_locations)
+
+    def _08_03_connect_well_taps(self):
+        router = DefaultRouter(
+            graph_router=self.router,
+            debug_routing_graph=self.debug_routing_graph,
+            tech=self.tech
+        )
 
     def _09_post_process(self):
         tech = self.tech
