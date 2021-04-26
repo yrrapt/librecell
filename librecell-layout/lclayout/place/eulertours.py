@@ -21,31 +21,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def construct_even_degree_graphs(G: nx.MultiGraph) -> List[nx.MultiGraph]:
+def construct_even_degree_graphs(graph: nx.MultiGraph) -> List[nx.MultiGraph]:
     """ Construct all graphs of even degree by inserting a minimal number of virtual edges.
-    :param G: A nx.MultiGraph
+    :param graph: A nx.MultiGraph
     :return: List[nx.MultiGraph]
         Returns a list of all graphs that can be constructed by inserting virtual edges.
     """
 
-    assert isinstance(G, nx.MultiGraph), Exception("G must be a nx.MultiGraph.")
+    assert isinstance(graph, nx.MultiGraph), Exception("G must be a nx.MultiGraph.")
 
-    if nx.is_empty(G):
+    if nx.is_empty(graph):
         logger.debug("Graph is empty.")
     else:
         # nx.is_connected is not defined for empty graphs.
-        if not nx.is_connected(G):
+        if not nx.is_connected(graph):
             logger.debug("Graph is not connected. Assuming there is a transmission gate.")
 
     # Find nodes with odd degree.
-    odd_degree_nodes = [n for n, deg in G.degree if deg % 2 == 1]
+    odd_degree_nodes = [n for n, deg in graph.degree if deg % 2 == 1]
 
     assert len(odd_degree_nodes) % 2 == 0
 
     if len(odd_degree_nodes) == 0:
         # All node degrees are already even. Nothing to do.
-        assert nx.is_connected(G), Exception("G must be a connected graph.")
-        return [G.copy()]
+        assert nx.is_connected(graph), Exception("G must be a connected graph.")
+        return [graph.copy()]
 
     """
     Finding all even degree graphs by inserting a minimal number of edges works as follows:
@@ -69,20 +69,20 @@ def construct_even_degree_graphs(G: nx.MultiGraph) -> List[nx.MultiGraph]:
     for partition_a, partition_b in zip(partitions_a, partitions_b):
         # ... find all pairings across the two partitions.
         for partition_b_permutation in permutations(partition_b):
-            G2 = G.copy()
+            graph2 = graph.copy()
             for a, b in zip(partition_a, partition_b_permutation):
-                assert G2.degree(a) % 2 == 1
-                assert G2.degree(b) % 2 == 1
-                G2.add_edge(a, b)
+                assert graph2.degree(a) % 2 == 1
+                assert graph2.degree(b) % 2 == 1
+                graph2.add_edge(a, b)
 
-            for n, deg in G2.degree:
+            for n, deg in graph2.degree:
                 assert deg % 2 == 0
 
-            if nx.is_connected(G2):
+            if nx.is_connected(graph2):
                 # In presence of transmission gates the resulting graph might not be connected.
                 # Only store the graphs that are connected.
                 # TODO: This might not scale if there are many transmission gates => Handle transmission gates more efficiently.
-                even_degree_graphs.append(G2)
+                even_degree_graphs.append(graph2)
 
     for g1, g2 in combinations(even_degree_graphs, 2):
         assert g1 != g2, "There should be no duplicates."
@@ -90,14 +90,14 @@ def construct_even_degree_graphs(G: nx.MultiGraph) -> List[nx.MultiGraph]:
     return even_degree_graphs
 
 
-def find_all_euler_tours(G: nx.MultiGraph, start_node=None, end_node=None, visited_edges: Set = None,
+def find_all_euler_tours(graph: nx.MultiGraph, start_node=None, end_node=None, visited_edges: Set = None,
                          limit: Optional[int] = None):
     """ Find some tour starting at `start_node`.
     If `end_node` is given the trace will end there. However, it will not be a full tour.
 
     Parameters
     ----------
-    G: The graph
+    graph: The graph
 
     start_node: Start of the tour.
 
@@ -109,7 +109,7 @@ def find_all_euler_tours(G: nx.MultiGraph, start_node=None, end_node=None, visit
     -------
     Tour through G starting and ending at `start_node`.
     """
-    for n, deg in G.degree():
+    for n, deg in graph.degree:
         assert deg % 2 == 0, Exception("All nodes in G must have even degree.")
 
     tours = []
@@ -119,12 +119,12 @@ def find_all_euler_tours(G: nx.MultiGraph, start_node=None, end_node=None, visit
 
     if start_node is None:
         # Deterministically choose some start node.
-        start_node = min(G.nodes)
+        start_node = min(graph.nodes)
 
     if end_node is None:
         end_node = start_node
 
-    edges = list(G.edges(start_node, keys=True))
+    edges = list(graph.edges(start_node, keys=True))
 
     assert len(edges) > 0
 
@@ -139,19 +139,19 @@ def find_all_euler_tours(G: nx.MultiGraph, start_node=None, end_node=None, visit
         ao, bo = tuple(sorted((a, b)))
         e_norm = ao, bo, c
         if e_norm not in visited_edges:
-            if len(visited_edges) == len(G.edges) - 1:
+            if len(visited_edges) == len(graph.edges) - 1:
                 # Last edge
                 assert b == end_node
                 tours.append([(a, b, c)])
             else:
-                assert len(visited_edges) < len(G.edges) - 1
+                assert len(visited_edges) < len(graph.edges) - 1
                 visited_edges_sub = visited_edges | {e_norm}
                 start_sub = b
                 if limit is None:
                     sub_limit = None
                 else:
                     sub_limit = max(0, limit - len(tours))
-                sub_tours = find_all_euler_tours(G, start_sub, end_node, visited_edges=visited_edges_sub, limit=sub_limit)
+                sub_tours = find_all_euler_tours(graph, start_sub, end_node, visited_edges=visited_edges_sub, limit=sub_limit)
 
                 tours.extend([[(a, b, c)] + s for s in sub_tours])
 
