@@ -176,7 +176,7 @@ class LcLayout:
             min_size = self.tech.minimum_gate_width_nfet if t.channel_type == ChannelType.NMOS else self.tech.minimum_gate_width_pfet
 
             if t.channel_width + 1e-12 < min_size:
-                logger.warning("Channel width too small changing it to minimal size: %.2e < %.2e", t.channel_width,
+                logger.warning("Channel width too small. Changing it to minimal size: %.2e < %.2e", t.channel_width,
                                min_size)
 
             t.channel_width = max(min_size, t.channel_width)
