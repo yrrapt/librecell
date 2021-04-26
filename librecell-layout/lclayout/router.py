@@ -305,11 +305,12 @@ class DefaultRouter():
 
     def _08_draw_routes(self, shapes: Dict[str, db.Shapes], routing_trees: Dict[str, nx.Graph]):
         # Draw the layout of the routes.
-        for signal_name, rt in routing_trees.items():
-            _draw_routing_tree(shapes, self._routing_graph, rt, self.tech, self.debug_routing_graph)
+        if routing_trees:
+            for signal_name, rt in routing_trees.items():
+                _draw_routing_tree(shapes, self._routing_graph, rt, self.tech, self.debug_routing_graph)
 
-        # Merge the polygons on all layers.
-        _merge_all_layers(shapes)
+            # Merge the polygons on all layers.
+            _merge_all_layers(shapes)
 
 
 def _merge_all_layers(shapes: Dict[str, db.Shapes]):
