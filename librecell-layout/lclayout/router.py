@@ -80,7 +80,7 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                 via = pya.Box(pya.Point(x1 - w, y1 - w),
                               pya.Point(x1 + w, y1 + w))
                 via_shape = shapes[via_layer].insert(via)
-                #via_shape.set_property('net', signal_name)
+                # via_shape.set_property('net', signal_name)
 
                 # Ensure minimum via enclosure.
                 if not debug_routing_graph:
@@ -139,8 +139,20 @@ class DefaultRouter():
               routing_terminal_debug_layers: Dict[str, str] = None,
               top_cell: db.Cell = None
               ):
+        """
+        Connect all shapes of a net.
+        The layout is provided in the `shapes` object which is a dictionary like `{layer: db.Shapes}`.
+        The property 'net' of a shape tells to which net it should be connected.
+        :param shapes: Layout as a dict like `{layer: db.Shapes}`.
+        :param io_pins: Create accessible metal shapes for this nets.
+        :param transistor_layouts: Optionally provide transistor layouts to insert routing nodes that are not on the grid.
+        :param routing_terminal_debug_layers: Layer mapping for drawing the debug routing graph.
+            Dictionary like {design layer: debug layer}.
+        :param top_cell: Layout cell where routes should be drawn.
+        :return:
+        """
         routing_trees = self._06_route(shapes, io_pins, transistor_layouts,
-                       routing_terminal_debug_layers, top_cell)
+                                       routing_terminal_debug_layers, top_cell)
         self._08_draw_routes(shapes, routing_trees)
         return routing_trees
 
@@ -312,11 +324,11 @@ class DefaultRouter():
 
             # Invoke router and store result.
             routing_trees = self.router.route(graph,
-                                                    signals=virtual_terminal_nodes,
-                                                    reserved_nodes=reserved_nodes,
-                                                    node_conflict=conflicts,
-                                                    is_virtual_node_fn=_is_virtual_node_fn
-                                                    )
+                                              signals=virtual_terminal_nodes,
+                                              reserved_nodes=reserved_nodes,
+                                              node_conflict=conflicts,
+                                              is_virtual_node_fn=_is_virtual_node_fn
+                                              )
 
             # TODO: Sanity check on result.
             return routing_trees
@@ -331,7 +343,7 @@ class DefaultRouter():
                                    rt, self.tech, self.debug_routing_graph)
 
             # Merge the polygons on all layers.
-            #_merge_all_layers(shapes)
+            # _merge_all_layers(shapes)
 
 
 def _merge_all_layers(shapes: Dict[str, db.Shapes]):
