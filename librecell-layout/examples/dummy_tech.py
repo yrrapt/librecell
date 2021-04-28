@@ -15,6 +15,7 @@ from lclayout.layout.layers import *
 from lclayout.writer.magic_writer import MagWriter
 from lclayout.writer.lef_writer import LefWriter
 from lclayout.writer.gds_writer import GdsWriter
+from lclayout.writer.oasis_writer import OasisWriter
 
 # Physical size of one data base unit in meters.
 # All dimensions in this file must be given in this unit.
@@ -105,6 +106,11 @@ output_writers = [
     GdsWriter(
         db_unit=db_unit,
         output_map=output_map
+    ),
+
+    OasisWriter(
+        db_unit=db_unit,
+        output_map=output_map
     )
 ]
 
@@ -136,6 +142,8 @@ min_spacing = {
     (l_poly, l_nwell): 50,
     (l_poly, l_ndiffusion): 50,
     (l_poly, l_pdiffusion): 50,
+    (l_poly, l_nplus): 50,
+    (l_poly, l_pplus): 50,
     (l_poly, l_poly): 50,
     (l_poly, l_ndiff_contact): 10,
     (l_poly, l_pdiff_contact): 10,
@@ -277,8 +285,15 @@ weights_vertical = {
 
 # Via weights.
 via_weights = {
+    # Contacts to source/drain of transistors.
     (l_metal1, l_ndiffusion): 500,
     (l_metal1, l_pdiffusion): 500,
+
+    # Contacts to well-taps: This weights don't matter much.
+    (l_metal1, l_pplus): 1,
+    (l_metal1, l_nplus): 1,
+
+    # Vias
     (l_metal1, l_poly): 500,
     (l_metal1, l_metal2): 400
 }

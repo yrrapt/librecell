@@ -274,7 +274,8 @@ class LcLayout:
         # # Merge the polygons on all layers.
         # _merge_all_layers(self.shapes)
 
-    def _08_2_insert_well_taps(self):
+    def _08_2_insert_well_taps(self, vdd_net, gnd_net):
+        logger.debug("Insert well-taps.")
         spacing_graph = self._spacing_graph
 
         ntap_size = (100, 100)
@@ -325,15 +326,27 @@ class LcLayout:
         ptap_locations = find_tap_locations(l_pplus, l_pwell, ptap_keepout_layers, ptap_size)
 
         # Visualize the regions in the layout.
-        self.shapes[l_nplus].insert(ntap_locations)
-        self.shapes[l_pplus].insert(ptap_locations)
+        # self.shapes[l_nplus].insert(ntap_locations)
+        for p in ntap_locations.each_merged():
+            ntap = self.shapes[l_nplus].insert(p)
+            ntap.set_property('net', vdd_net)
+        # self.shapes[l_pplus].insert(ptap_locations)
+        for p in ptap_locations.each_merged():
+            ptap = self.shapes[l_pplus].insert(p)
+            ptap.set_property('net', gnd_net)
 
     def _08_03_connect_well_taps(self):
+        logger.debug("Connect well-taps.")
         router = DefaultRouter(
             graph_router=self.router,
             debug_routing_graph=self.debug_routing_graph,
             tech=self.tech
         )
+
+        routing_trees = router.route(self.shapes, io_pins=[],
+                                     transistor_layouts=dict(),
+                                     routing_terminal_debug_layers=self._routing_terminal_debug_layers,
+                                     top_cell=self.top_cell)
 
     def _09_post_process(self):
         tech = self.tech
@@ -569,7 +582,8 @@ class LcLayout:
         self._05_draw_cell_template()
         self._06_route()
         self._08_draw_routes()
-        self._08_2_insert_well_taps()
+        # self._08_2_insert_well_taps(vdd_net='vdd', gnd_net='gnd')  # TODO: No hardcoded nets.
+        # self._08_03_connect_well_taps()
         self._09_post_process()
 
         return self.top_cell, self._pin_shapes

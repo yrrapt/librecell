@@ -13,12 +13,14 @@ import klayout.db as db
 
 def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                        G: nx.Graph,
+                       signal_name: str,
                        rt: nx.Graph,
                        tech,
                        debug_routing_graph: bool = False):
     """ Draw a routing graph into a layout.
     :param shapes: Mapping from layer name to pya.Shapes object
     :param G: Full graph of routing grid
+    :param signal_name: Name of the net.
     :param rt: Graph representing the wires
     :param tech: module containing technology information
     :param debug_routing_graph: Draw narrower wires for easier visual inspection
@@ -59,7 +61,8 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                     w = min(tech.routing_grid_pitch_x, tech.routing_grid_pitch_y) // 16
 
                 path = pya.Path([pya.Point(x1, y1), pya.Point(x2, y2)], w, ext, ext)
-                shapes[l1].insert(path)
+                s = shapes[l1].insert(path)
+                s.set_property('net', signal_name)
             else:
                 # l1 != l1 -> this looks like a via
                 assert x1 == x2
@@ -76,7 +79,8 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                 w = via_width // 2
                 via = pya.Box(pya.Point(x1 - w, y1 - w),
                               pya.Point(x1 + w, y1 + w))
-                shapes[via_layer].insert(via)
+                via_shape = shapes[via_layer].insert(via)
+                #via_shape.set_property('net', signal_name)
 
                 # Ensure minimum via enclosure.
                 if not debug_routing_graph:
@@ -86,7 +90,7 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                         neighbors = rt.neighbors((l, (x1, y1)))
                         neighbors = [n for n in neighbors if n[0] == l]
 
-                        w_ext = via_width // 2 + tech.minimum_enclosure[(l, via_layer)]
+                        w_ext = via_width // 2 + tech.minimum_enclosure.get((l, via_layer), 0)
                         w_noext = via_width // 2
 
                         # Check on which sides the enclosure must be extended.
@@ -112,7 +116,8 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                             pya.Point(x1 - ext_left, y1 - ext_lower),
                             pya.Point(x1 + ext_right, y1 + ext_upper)
                         )
-                        shapes[l].insert(enc)
+                        s = shapes[l].insert(enc)
+                        s.set_property('net', signal_name)
 
 
 class DefaultRouter():
@@ -144,6 +149,15 @@ class DefaultRouter():
                   transistor_layouts: Dict[Transistor, TransistorLayout],
                   routing_terminal_debug_layers: Dict[str, str] = None,
                   top_cell: db.Cell = None):
+        """
+
+        :param shapes:
+        :param io_pins: Create accessible metal shapes for this nets.
+        :param transistor_layouts:
+        :param routing_terminal_debug_layers:
+        :param top_cell: Layout cell where routes should be drawn.
+        :return: Returns the routing trees for each signal.
+        """
         # TODO: Move as much as possible of the grid construction into a router specific class.
         tech = self.tech
 
@@ -223,7 +237,10 @@ class DefaultRouter():
             graph.remove_nodes_from(unused_nodes)
 
         if not nx.is_connected(graph):
-            assert False, 'Routing graph is not connected.'
+            if self.debug_routing_graph:
+                logger.warning('Routing graph is not connected.')
+            else:
+                assert False, 'Routing graph is not connected.'
 
         self._routing_graph = graph
 
@@ -238,7 +255,8 @@ class DefaultRouter():
         if self.debug_routing_graph:
             # Write the full routing graph to GDS.
             logger.info("Skip routing and plot routing graph.")
-            self._routing_trees = {'graph': self._routing_graph}
+            routing_trees = {'graph': self._routing_graph}
+            return routing_trees
         else:
             logger.info("Start routing")
             # For each routing node find other nodes that are close enough that they cannot be used
@@ -307,10 +325,13 @@ class DefaultRouter():
         # Draw the layout of the routes.
         if routing_trees:
             for signal_name, rt in routing_trees.items():
-                _draw_routing_tree(shapes, self._routing_graph, rt, self.tech, self.debug_routing_graph)
+                _draw_routing_tree(shapes,
+                                   self._routing_graph,
+                                   signal_name,
+                                   rt, self.tech, self.debug_routing_graph)
 
             # Merge the polygons on all layers.
-            _merge_all_layers(shapes)
+            #_merge_all_layers(shapes)
 
 
 def _merge_all_layers(shapes: Dict[str, db.Shapes]):

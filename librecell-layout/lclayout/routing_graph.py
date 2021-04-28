@@ -57,7 +57,8 @@ def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
 
             weight = tech.via_weights.get((l1, l2))
             if weight is None:
-                weight = tech.via_weights[(l2, l1)]
+                weight = tech.via_weights.get((l2, l1))
+                assert weight is not None, f"No via weight specified from layer '{l1}' to '{l2}'."
 
             multi_via = tech.multi_via.get((l1, l2))
             if multi_via is None:
@@ -191,7 +192,9 @@ def remove_existing_routing_edges(G: nx.Graph, shapes: Dict[Any, pya.Shapes], te
     # Remove all routing edges that are inside existing shapes.
     # (They are already connected and cannot be used for routing).
     for l in tech.routing_layers.keys():
-        edges = edges_inside(G, pya.Region(shapes[l]), 1)
+        r = pya.Region(shapes[l])
+        r.merge()
+        edges = edges_inside(G, r, 1)
         for e in edges:
             (l1, _), (l2, _) = e
             if (l1, l2) == (l, l):
@@ -218,7 +221,8 @@ def extract_terminal_nodes(graph: nx.Graph,
 
             if net is not None:
                 possible_via_layers = [data['layer'] for _, _, data in via_layers.edges(layer, data=True)]
-                enc = max((tech.minimum_enclosure.get((layer, via_layer), 0) for via_layer in possible_via_layers))
+                assert len(possible_via_layers) > 0, f"No via layer is specified that connects to layer '{layer}'."
+                enc = max((tech.minimum_enclosure.get((layer, via_layer), 0) for via_layer in possible_via_layers), default=0)
                 max_via_size = max((tech.via_size[l] for l in possible_via_layers))
 
                 # TODO: How to convert db.Shape into db.Region in a clean way???

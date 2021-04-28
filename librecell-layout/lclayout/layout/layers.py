@@ -183,5 +183,9 @@ layermap_reverse = {v: k for k, v in layermap.items()}
 via_layers = nx.Graph()
 via_layers.add_edge(l_ndiffusion, l_metal1, layer=l_ndiff_contact)
 via_layers.add_edge(l_pdiffusion, l_metal1, layer=l_pdiff_contact)
+
+via_layers.add_edge(l_nplus, l_metal1, layer=l_ndiff_contact)
+via_layers.add_edge(l_pplus, l_metal1, layer=l_pdiff_contact)
+
 via_layers.add_edge(l_poly, l_metal1, layer=l_poly_contact)
 via_layers.add_edge(l_metal1, l_metal2, layer=l_via1)
