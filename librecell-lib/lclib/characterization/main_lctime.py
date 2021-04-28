@@ -334,6 +334,9 @@ def main():
         # Get information on pins
         input_pins, output_pins, output_functions_user = liberty_util.get_pin_information(cell_group)
 
+        logger.info(f"Input pins as defined in liberty: {input_pins}")
+        logger.info(f"Output pins as defined in liberty: {output_pins}")
+
         # Load netlist of cell
         # TODO: Load all netlists at the beginning.
         logger.info('Load netlist: %s', netlist_file)
@@ -365,6 +368,50 @@ def main():
         if pins_not_in_spice:
             logger.error(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
             exit(1)
+
+        # Convert the transistor network into its multi-graph representation.
+        # This is used for a formal analysis of the network.
+        transistor_graph = _transistors2multigraph(transistors_abstract)
+
+        # Detect input nets.
+        if args.analyze_cell_function:
+            logger.debug("Detect input nets from the circuit.")
+            detected_inputs = functional_abstraction.find_input_gates(transistor_graph)
+            # Detect nets that must be inputs (connected to gates only but do not
+            # appear in the list of pins in the SPICE circuit definition.
+            inputs_missing_in_spice = detected_inputs - all_spice_pins
+            if inputs_missing_in_spice:
+                logger.warning(f"The circuit has gate nets that must be inputs "
+                               f"but are not in the pin definition of the SPICE circuit: "
+                               f"{', '.join(sorted(inputs_missing_in_spice))}")
+            # Same check for pins declared in liberty template.
+            inputs_missing_in_liberty = detected_inputs - all_liberty_pins
+            if inputs_missing_in_liberty:
+                logger.info(f"The circuit has gate nets that must be inputs "
+                            f"but are not declared as a pin in the liberty template: "
+                            f"{', '.join(sorted(inputs_missing_in_liberty))}")
+
+            # Add detected input pins.
+            diff = detected_inputs - set(input_pins)
+            logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
+            input_pins.extend(detected_inputs)
+
+            # Find pins that are defined in the SPICE circuit but are not inputs nor power.
+            maybe_outputs = all_spice_pins - set(input_pins) - set(power_pins)
+            logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
+            output_pins.append(maybe_outputs)
+
+        # Sanity check.
+        if len(input_pins) == 0:
+            msg = "Cell has no input pins."
+            logger.error(msg)
+            assert False, msg
+
+        # Sanity check.
+        if len(output_pins) == 0:
+            msg = "Cell has no output pins."
+            logger.error(msg)
+            assert False, msg
 
         # Extract differential pairs from liberty.
         logger.debug("Load complementary pins from liberty.")
@@ -405,7 +452,7 @@ def main():
         if args.analyze_cell_function:
             # Derive boolean functions for the outputs from the netlist.
             logger.info("Derive boolean functions for the outputs based on the netlist.")
-            transistor_graph = _transistors2multigraph(transistors_abstract)
+
             abstracted_circuit = functional_abstraction.analyze_circuit_graph(
                 graph=transistor_graph,
                 pins_of_interest=io_pins,
@@ -456,18 +503,6 @@ def main():
             name: _boolean_to_lambda(f)
             for name, f in output_functions_symbolic.items()
         }
-
-        # Sanity check.
-        if len(input_pins) == 0:
-            msg = "Cell has no input pins."
-            logger.error(msg)
-            assert False, msg
-
-        # Sanity check.
-        if len(output_pins) == 0:
-            msg = "Cell has no output pins."
-            logger.error(msg)
-            assert False, msg
 
         # Add groups for the cell to be characterized.
         new_cell_group = deepcopy(select_cell(library, cell_name))

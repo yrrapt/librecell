@@ -21,7 +21,6 @@
 import itertools
 import networkx as nx
 from typing import Any, Dict, List, Iterable, Tuple, Set
-from enum import Enum
 import collections
 import sympy
 from sympy.logic import satisfiable, simplify_logic as sympy_simplify_logic
@@ -143,10 +142,8 @@ def simplify_with_assumption(assumption: boolalg.Boolean, formula: boolalg.Boole
     """
 
     # Extract variables.
-    all_vars = set()
-    all_vars.update(assumption.atoms())
-    all_vars.update(formula.atoms())
-    all_vars = [v for v in all_vars if v is not boolalg.true and v is not boolalg.false]
+    all_vars = set(assumption.atoms(sympy.Symbol)) + set(formula.atoms(sympy.Symbol))
+
     all_vars = sorted(all_vars, key=lambda a: a.name)
 
     # Create a truth table.
@@ -212,7 +209,7 @@ def _get_gate_nets(graph: nx.MultiGraph) -> Set:
     return all_gate_nets
 
 
-def _find_input_gates(graph: nx.MultiGraph) -> Set:
+def find_input_gates(graph: nx.MultiGraph) -> Set:
     """
     Find names of input signals.
     Every net that is connected only to transistor gates is considered an input to the cell.
@@ -236,7 +233,7 @@ def test_find_input_gates():
     g.add_edge('vdd', 'output', ('nand', ChannelType.PMOS))
     g.add_edge('gnd', 'output', ('nand', ChannelType.NMOS))
 
-    inputs = _find_input_gates(g)
+    inputs = find_input_gates(g)
     assert inputs == {'a', 'b'}
 
 
@@ -337,7 +334,7 @@ def _get_conductivity_conditions(cmos_graph: nx.MultiGraph,
     :return: sympy.Symbol
     """
 
-    gate_input_nets = _find_input_gates(cmos_graph)
+    gate_input_nets = find_input_gates(cmos_graph)
     # Find input nets that also connect to a source or drain, i.e. to a transmission gate.
     transmission_input_pins = inputs - gate_input_nets
     logger.info("Input pins to a transmission gate: {}".format(transmission_input_pins))
@@ -431,7 +428,7 @@ def complex_cmos_graph_to_formula(cmos_graph: nx.MultiGraph,
 
     # Consider all nodes as input variables that are either connected to transistor
     # gates only or are specified by the caller.
-    deduced_input_pins = _find_input_gates(cmos_graph)
+    deduced_input_pins = find_input_gates(cmos_graph)
     logger.info("Deduced input pins: {}".format(deduced_input_pins))
     inputs = deduced_input_pins | input_pins
     logger.info("All input pins: {}".format(deduced_input_pins))
@@ -625,7 +622,7 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         user_input_nets = set(user_input_nets)
 
     logger.info("User supplied input nets: {}".format(user_input_nets))
-    deduced_input_nets = _find_input_gates(graph)
+    deduced_input_nets = find_input_gates(graph)
     logger.info("Additional detected input nets: {}".format(deduced_input_nets))
     input_nets = user_input_nets | deduced_input_nets | constant_input_pins.keys()
     output_nodes = pins_of_interest - input_nets
@@ -696,6 +693,8 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     logger.debug('inputs = {}'.format(inputs))
 
     # Find formulas for nets that are complementary and can never be in a high-impedance nor short-circuit state.
+    logger.debug("Find formulas for nets that are complementary and "
+                 "can never be in a high-impedance nor short-circuit state.")
     complementary_formulas = {k: formulas_high[k]
                               for k in formulas_high.keys()
                               if _is_complementary(formulas_high[k], formulas_low[k])}
@@ -705,10 +704,12 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     formulas_low = {n: f.subs(complementary_formulas) for n, f in formulas_low.items()}
 
     # Find high-Z conditions.
+    logger.debug("Find high-Z conditions.")
     high_impedance_conditions = {k: simplify_logic(~formulas_high[k] & ~formulas_low[k])
                                  for k in formulas_high.keys()}
 
     # Find short-circuit conditions.
+    logger.debug("Find short-circuit conditions.")
     short_circuit_conditions = {k: simplify_logic(formulas_high[k] & formulas_low[k])
                                 for k in formulas_high.keys()}
 
