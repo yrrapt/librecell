@@ -184,8 +184,8 @@ class LatchExtractor:
             return None
 
         latch = latch_path[0]
-
-        enable_signals = sorted(latch.write_condition.atoms(sympy.Symbol))
+        
+        enable_signals = sorted(latch.write_condition.atoms(sympy.Symbol), key=lambda s: s.name)
         logger.debug(f"Potential clock/set/preset signals {enable_signals}")
 
         result = Latch()
