@@ -184,13 +184,26 @@ class LatchExtractor:
             return None
 
         latch = latch_path[0]
-        
+
+        # Find preset / clear conditions.
         enable_signals = sorted(latch.write_condition.atoms(sympy.Symbol), key=lambda s: s.name)
         logger.debug(f"Potential clock/set/preset signals {enable_signals}")
+
+        # Find preset condition.
+        preset_assumption = latch.data # Assume that True is written (preset).
+        preset_condition = preset_assumption & simplify_with_assumption(preset_assumption, latch.write_condition)
+        logger.info(f"Preset condition: {preset_condition}")
+
+        # Find clear condition.
+        clear_assumption = ~latch.data # Assume that False is written (clear).
+        clear_condition = clear_assumption & simplify_with_assumption(clear_assumption, latch.write_condition)
+        logger.info(f"Clear condition: {clear_condition}")
 
         result = Latch()
         result.enable = latch.write_condition
         result.data_in = latch.data
+        result.clear = clear_condition
+        result.preset = preset_condition
 
         return result
 
