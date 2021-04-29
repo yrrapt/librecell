@@ -142,7 +142,7 @@ def simplify_with_assumption(assumption: boolalg.Boolean, formula: boolalg.Boole
     """
 
     # Extract variables.
-    all_vars = set(assumption.atoms(sympy.Symbol)) + set(formula.atoms(sympy.Symbol))
+    all_vars = set(assumption.atoms(sympy.Symbol)) | set(formula.atoms(sympy.Symbol))
 
     all_vars = sorted(all_vars, key=lambda a: a.name)
 
