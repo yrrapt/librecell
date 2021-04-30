@@ -343,6 +343,10 @@ def main():
         transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name, force_lowercase=True)
         io_pins = net_util.get_io_pins(cell_pins)
 
+        if len(transistors_abstract) == 0:
+            logger.error("No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)")
+            exit(1)
+
         # Detect power pins.
         # TODO: don't decide based only on net name.
         power_pins = [p for p in cell_pins if net_util.is_power_net(p)]
