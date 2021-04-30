@@ -49,7 +49,9 @@ from lccommon import net_util
 from lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
 import networkx as nx
 import sympy.logic.boolalg
-from typing import Iterable
+
+from PySpice.Spice.Parser import SpiceParser
+import logging
 
 
 def _boolean_to_lambda(boolean: boolalg.Boolean):
@@ -61,10 +63,6 @@ def _boolean_to_lambda(boolean: boolalg.Boolean):
     simple = sympy.simplify(boolean)
     f = sympy.lambdify(boolean.atoms(), simple)
     return f
-
-
-from PySpice.Spice.Parser import SpiceParser
-import logging
 
 
 def main():
