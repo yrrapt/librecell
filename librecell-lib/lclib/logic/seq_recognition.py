@@ -32,6 +32,8 @@ from sympy.logic import boolalg
 from lclayout.data_types import ChannelType
 import logging
 
+from ..cell_types import Latch, SingleEdgeDFF
+
 # logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
@@ -110,26 +112,6 @@ def test_find_boolean_isomorphism():
     mapping = find_boolean_isomorphism(f, g)
     print(mapping)
     assert mapping == {a: x, b: y, c: z}
-
-
-class Latch:
-
-    def __init__(self):
-        self.data_in = None
-        self.enable = None  # Write condition / clock.
-        self.clear = None  # Clear condition.
-        self.preset = None  # Preset condition.
-
-    def __str__(self):
-        return self.human_readable_description()
-
-    def human_readable_description(self) -> str:
-        return f"""Latch {{
-    write data: {self.data_in}
-    write enable: {self.enable}
-    clear: {self.clear}
-    preset: {self.preset}
-}}"""
 
 
 class LatchExtractor:
@@ -216,56 +198,6 @@ class LatchExtractor:
         result.preset = preset_condition
 
         return result
-
-
-class SingleEdgeDFF:
-    """
-    Single-edge triggered delay flip-flop.
-    """
-
-    def __init__(self):
-        self.clock_signal = None  # Name of the clock signal.
-        self.clock_edge_polarity = None  # True = rising, False = falling
-
-        self.data_in = None  # Expression for the input data.
-        self.data_out = None  # Name of the non-inverted data output net.
-        self.data_out_inv = None  # Name of the inverted data output net (if any).
-
-        self.scan_enable = None  # Name of the scan-enable input.
-        self.scan_in = None
-
-        self.async_set_signal = None  # Name of the asynchronous preset signal.
-        self.async_set_polarity = None  # Polarity of the signal (False: active low, True: active high).
-
-        self.async_reset_signal = None  # Name of the asynchronous clear signal.
-        self.async_reset_polarity = None  # Polarity of the signal (False: active low, True: active high).
-
-    def __str__(self):
-        return self.human_readable_description()
-
-    def human_readable_description(self) -> str:
-
-        preset_polarity = ""
-        if self.async_set_polarity is not None:
-            preset_polarity = "HIGH" if self.async_set_polarity else "LOW"
-
-        clear_polarity = ""
-        if self.async_reset_polarity is not None:
-            clear_polarity = "HIGH" if self.async_reset_polarity else "LOW"
-
-        return f"""SingleEdgeDFF {{
-    clock: {self.clock_signal}
-    active clock edge: {"rising" if self.clock_edge_polarity else "falling"}
-    output: {self.data_out}
-    inverted output: {self.data_out_inv}
-    next data: {self.data_in}
-    
-    asynchronous preset: {self.async_set_signal} {preset_polarity}
-    asynchronous clear: {self.async_reset_signal} {clear_polarity}
-
-    scan enable: {self.scan_enable}
-    scan input: {self.scan_in}
-}}"""
 
 
 class DFFExtractor:

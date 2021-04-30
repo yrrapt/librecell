@@ -29,12 +29,14 @@ import tempfile
 
 import liberty.parser as liberty_parser
 from liberty.types import *
+from ..cell_types import Combinational, SingleEdgeDFF, Latch
 
 from PySpice.Unit import *
 
 from ..logic.util import is_unate_in_xi
 from ..liberty import util as liberty_util
 from ..logic import functional_abstraction
+from ..logic import seq_recognition
 
 from .util import *
 from .timing_combinatorial import characterize_comb_cell
@@ -344,7 +346,8 @@ def main():
         io_pins = net_util.get_io_pins(cell_pins)
 
         if len(transistors_abstract) == 0:
-            logger.error("No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)")
+            msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
+            logger.error(msg)
             exit(1)
 
         # Detect power pins.
@@ -453,6 +456,27 @@ def main():
         inverted_pins = differential_inputs.values()
         input_pins_non_inverted = [p for p in input_pins if p not in inverted_pins]
 
+        # Find from liberty if the cell is sequential.
+        cell_type = None
+        ff_group = cell_group.get_groups("ff")
+        latch_group = cell_group.get_groups("latch")
+        if ff_group and latch_group:
+            logger.error("Cell contains a 'ff' and 'latch' description.")
+            assert False, "Cannot characterize cells with both 'ff' and 'latch'."
+        elif ff_group:
+            if len(ff_group) != 1:
+                assert False, "Cannot characterize cells with more than one 'ff' group."
+            logger.info("'ff' group found. Cell is expected to be a flip-flop.")
+            cell_type = SingleEdgeDFF()
+        elif latch_group:
+            if len(latch_group) != 1:
+                assert False, "Cannot characterize cells with more than one 'latch' group."
+            logger.info("'latch' group found. Cell is expected to be a latch.")
+            cell_type = Latch()
+        else:
+            # No sequential element.
+            cell_type = Combinational()
+
         if args.analyze_cell_function:
             # Derive boolean functions for the outputs from the netlist.
             logger.info("Derive boolean functions for the outputs based on the netlist.")
@@ -469,8 +493,29 @@ def main():
 
             if abstracted_circuit.latches:
                 # There's some feedback loops in the circuit.
-                logger.error("Characterization of memory loops is not supported yet.")
-                exit(1)
+
+                # Try to recognize sequential cells.
+                detected_cell_type = seq_recognition.extract_sequential_circuit(abstracted_circuit)
+
+                if detected_cell_type:
+                    print("Detected sequential circuit:")
+                    print(detected_cell_type)
+
+            else:
+                logger.info("Detected purely combinational circuit.")
+                detected_cell_type = Combinational()
+                if cell_type is None:
+                    cell_type = Combinational()
+
+            if cell_type is None:
+                cell_type = detected_cell_type
+            else:
+                # Sanity check: Detected cell type (combinational, latch, ff) must match with the liberty file.
+                if type(detected_cell_type) is not type(cell_type):
+                    msg = f"Mismatch: Detected cell type is {type(detected_cell_type)} " \
+                          f"but liberty says {type(cell_type)}."
+                    logger.error(msg)
+                    assert False, msg
 
             output_functions_deduced = abstracted_circuit.outputs
 
