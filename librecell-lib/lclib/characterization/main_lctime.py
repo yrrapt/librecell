@@ -511,6 +511,14 @@ def main():
         for pin_group in new_cell_group.get_groups('pin'):
             pin_group.groups = [g for g in pin_group.groups if g.group_name != 'timing']
 
+        # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
+        for input_pin in input_pins_non_inverted:
+            input_pin_group = new_cell_group.get_group('pin', input_pin)
+            # Create link to inverted pin for differential inputs.
+            input_pin_inverted = differential_inputs.get(input_pin)
+            if input_pin_inverted:
+                input_pin_group['complementary_pin'] = [EscapedString(input_pin_inverted)]
+
         logger.info("Run characterization.")
 
         # TODO: Make time resolution parametrizable.
@@ -523,11 +531,6 @@ def main():
             # Input capacitances are not measured for the inverting inputs of differential pairs.
             logger.info("Measuring input capacitance: {} {}".format(cell_name, input_pin))
             input_pin_group = new_cell_group.get_group('pin', input_pin)
-
-            # Create link to inverted pin for differential inputs.
-            input_pin_inverted = differential_inputs.get(input_pin)
-            if input_pin_inverted:
-                input_pin_group['complementary_pin'] = [EscapedString(input_pin_inverted)]
 
             result = characterize_input_capacitances(
                 cell_name=cell_name,
