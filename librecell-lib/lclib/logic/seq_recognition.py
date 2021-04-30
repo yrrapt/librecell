@@ -190,14 +190,24 @@ class LatchExtractor:
         logger.debug(f"Potential clock/set/preset signals {enable_signals}")
 
         # Find preset condition.
-        preset_assumption = latch.data # Assume that True is written (preset).
-        preset_condition = preset_assumption & simplify_with_assumption(preset_assumption, latch.write_condition)
+        preset_condition = simplify_logic(latch.data & latch.write_condition)
         logger.info(f"Preset condition: {preset_condition}")
 
         # Find clear condition.
-        clear_assumption = ~latch.data # Assume that False is written (clear).
-        clear_condition = clear_assumption & simplify_with_assumption(clear_assumption, latch.write_condition)
+        clear_condition = simplify_logic(~latch.data & latch.write_condition)
         logger.info(f"Clear condition: {clear_condition}")
+
+        # Find single signals that satisfy the preset.
+        preset_signals = [s for s in enable_signals if bool_equals(preset_condition.subs({s: True}), sympy.true)]
+        preset_signals_inv = [s for s in enable_signals if bool_equals(preset_condition.subs({s: False}), sympy.true)]
+        logger.info(f"Preset signals (active high): {preset_signals}")
+        logger.info(f"Preset signals (active low): {preset_signals_inv}")
+
+        # Find single signals that satisfy the clear condition.
+        clear_signals = [s for s in enable_signals if bool_equals(clear_condition.subs({s: True}), sympy.true)]
+        clear_signals_inv = [s for s in enable_signals if bool_equals(clear_condition.subs({s: False}), sympy.true)]
+        logger.info(f"Clear signals (active high): {clear_signals}")
+        logger.info(f"Clear signals (active low): {clear_signals_inv}")
 
         result = Latch()
         result.enable = latch.write_condition
