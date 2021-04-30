@@ -227,7 +227,8 @@ def find_minimum_pulse_width(
         clock_pulse *= supply_voltage
 
         # All input voltage signals.
-        input_voltages = default_input_voltages.copy().update({
+        input_voltages = default_input_voltages.copy()
+        input_voltages.update({
             supply_net: supply_voltage,
             clock_input: clock_pulse,
             data_in: supply_voltage if rising_data_edge else 0.0  # Data-in is constant.
