@@ -635,27 +635,15 @@ def main():
                     output_pin=output_pin,
                     related_pin=related_pin,
                     output_functions=output_functions,
-                    supply_voltage=supply_voltage,
-                    trip_points=trip_points,
-                    timing_corner=calc_mode,
 
                     total_output_net_capacitance=output_capacitances,
                     input_net_transition=input_transition_times,
 
                     spice_netlist_file=netlist_file_table[cell_name],
-                    setup_statements=setup_statements,
-
-                    time_resolution=time_resolution_seconds,
-                    temperature=temperature,
-
-                    workingdir=cell_workingdir,
-
-                    ground_net=gnd_pin,
-                    supply_net=vdd_pin,
 
                     complementary_pins=differential_inputs,
 
-                    debug=args.debug
+                    conf=conf
                 )
 
                 # Get the table indices.

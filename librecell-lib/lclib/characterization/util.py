@@ -70,6 +70,12 @@ class CharacterizationConfig:
         self.timing_corner: CalcMode = None
         """
         Specify whether to take the maximum, minimum or average capacitance value. (Over all static input combinations).
+        
+        One of TimingCorner.WORST, TimingCorner.BEST or TimingCorner.TYPICAL
+        This defines how the default timing arc is calculated from all the conditional timing arcs.
+        WORST: max
+        BEST: min
+        TYPICAL: np.mean
         """
 
         self.setup_statements: List[str] = list()
