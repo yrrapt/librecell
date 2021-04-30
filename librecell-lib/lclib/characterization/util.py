@@ -28,7 +28,7 @@ from enum import Enum
 from collections import namedtuple
 from liberty.types import Group
 import logging
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, List
 import re
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,55 @@ TripPoints = namedtuple("TripPoints", [
     "slew_lower_threshold_fall",
     "slew_upper_threshold_fall"
 ])
+
+
+class CharacterizationConfig:
+    """
+    General settings for the standard-cell characterization runs and simulations.
+    """
+
+    def __init__(self):
+        self.supply_voltage: float = 0.0
+        "Supply voltage in volts."
+
+        self.trip_points: TripPoints = None
+        """
+        Trip-point object which specifies the voltage thresholds of the logical values.
+        """
+
+        self.timing_corner: CalcMode = None
+        """
+        Specify whether to take the maximum, minimum or average capacitance value. (Over all static input combinations).
+        """
+
+        self.setup_statements: List[str] = list()
+        """SPICE statements that are included at the beginning of the simulation. 
+        This should be used for .INCLUDE and .LIB statements."""
+
+        self.time_resolution: float = 1e-12
+        "Time resolution of the simulation."
+
+        self.temperature = 27
+        "Temperature of the simulated circuit."
+
+        self.workingdir: Optional[str] = None
+        "Directory where simulation files are put. Best on a ram-disk."
+
+        self.ground_net: str = 'GND'
+        "Name of the ground net."
+
+        self.supply_net: str = 'VDD'
+        "Name of the power supply net."
+
+        self.complementary_pins: Dict[str, str] = dict()
+        """Mapping of non-inverting pin name to its complementary pin name of differential pairs.
+        Dict[non inverting pin, inverting pin]."""
+
+        self.debug: bool = False
+        "Enable more verbose debugging output."
+
+        self.debug_plots: bool = False
+        "Enable more verbose debugging output such as plots of the simulations."
 
 
 #

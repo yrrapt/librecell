@@ -574,6 +574,20 @@ def main():
         time_resolution_seconds = 50e-12
         logger.info("Time resolution = {}s".format(time_resolution_seconds))
 
+        # Setup configuration struct.
+        conf = CharacterizationConfig()
+        conf.supply_voltage = supply_voltage
+        conf.trip_points = trip_points
+        conf.timing_corner = calc_mode
+        conf.setup_statements = setup_statements
+        conf.time_resolution = time_resolution_seconds
+        conf.temperature = temperature
+        conf.workingdir = cell_workingdir
+        conf.ground_net = gnd_pin
+        conf.supply_net = vdd_pin
+        conf.complementary_pins = differential_inputs
+        conf.debug = args.debug
+
         # Measure input pin capacitances.
         logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
         for input_pin in input_pins_non_inverted:
@@ -586,20 +600,8 @@ def main():
                 input_pins=input_pins,
                 active_pin=input_pin,
                 output_pins=output_pins,
-                supply_voltage=supply_voltage,
-                trip_points=trip_points,
-                timing_corner=calc_mode,
                 spice_netlist_file=netlist_file_table[cell_name],
-                setup_statements=setup_statements,
-
-                time_resolution=time_resolution_seconds,
-                temperature=temperature,
-
-                workingdir=cell_workingdir,
-                ground_net=gnd_pin,
-                supply_net=vdd_pin,
-                complementary_pins=differential_inputs,
-                debug=args.debug
+                conf=conf
             )
 
             input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_scale_factor
