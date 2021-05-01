@@ -243,7 +243,7 @@ exit
     # Dump simulation script to the file.
     logger.debug(f"Write simulation netlist: {simulation_file}")
     if os.path.exists(simulation_file):
-        logger.warning("Simulation file already exists: {}".format(simulation_file))
+        logger.debug("Simulation file already exists: {}".format(simulation_file))
     open(simulation_file, "w").write(sim_netlist)
 
     # Start ngspice.

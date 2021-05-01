@@ -125,7 +125,7 @@ def characterize_input_capacitances(
 
             # Add input voltages for inverted inputs of differential pairs.
             for p in static_input_nets:
-                inv = cfg.complementary_pins.get(p)
+                inv = cell_conf.complementary_pins.get(p)
                 if inv is not None:
                     assert inv not in input_voltages
                     # Add the inverted input voltage.

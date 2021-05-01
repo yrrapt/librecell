@@ -494,7 +494,7 @@ def test_find_min_pulse_width():
 
 
 def get_clock_to_output_delay(
-        cell_name: str,
+        cell_conf: CellConfig,
         cell_ports: List[str],
         clock_input: str,
         data_in: str,
@@ -503,26 +503,17 @@ def get_clock_to_output_delay(
         hold_time: float,
         rising_clock_edge: bool,
         rising_data_edge: bool,
-        supply_voltage: float,
         input_rise_time: float,
         input_fall_time: float,
-        trip_points: TripPoints,
-        temperature: float = 25,
         output_load_capacitances: Dict[str, float] = None,
-        time_step: float = 100.0e-12,
         clock_cycle_hint: float = 200.0e-12,
         setup_statements: List[str] = None,
-        workingdir: Optional[str] = None,
-        ground_net: str = 'GND',
-        supply_net: str = 'VDD',
         input_voltages: Dict[str, float] = None,
-        debug: bool = False,
 ) -> float:
     """Get the delay from the clock edge to the output edge.
 
     :param input_voltages: Static input voltages.
         This can be used to set the voltage of static input signals such as scan-enable.
-    :param cell_name: Name of the cell to be characterized. Must match with the name used in netlist and liberty.
     :param cell_ports: All circuit pins/ports in the same ordering as used in the SPICE circuit model.
     :param clock_input: Name of the clock pin ('related pin').
     :param data_in: Name of the data-in pin ('constrained pin').
@@ -531,32 +522,31 @@ def get_clock_to_output_delay(
     :param hold_time: Delay from clock edge to data input edge.
     :param rising_clock_edge: `True` = use rising clock edge, `False` = use falling clock edge.
     :param rising_data_edge: `True` = use rising data edge, `False` = use falling data edge.
-    :param supply_voltage: Supply voltage in volts.
     :param input_rise_time: Rise time of the input signal (clock and data).
     :param input_fall_time: Fall time of the input signal (clock and data).
-    :param trip_points:
-    :param temperature: Temperature of the simulation.
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
-    :param time_step: Simulation time step.
     :param clock_cycle_hint: Run the simulation for at least this amount of time.
     :param setup_statements: SPICE statements that are included at the beginning of the simulation.
         This should be used for .INCLUDE and .LIB statements.
-    :param ground_net: The name of the ground net.
-    :param supply_net: The name of the supply net.
-    :param workingdir: Directory where the simulation files will be put. If not specified a temporary directory will be created.
-    :param debug: Enable more verbose debugging output such as plots of the simulations.
     :return: Returns the delay from the clock edge to the data edge.
      Returns `Inf` if the output does not toggle within the maximum simulation time.
     """
 
-    # Create temporary working directory.
-    if workingdir is None:
-        workingdir = tempfile.mkdtemp("lctime-")
+    assert isinstance(cell_conf, CellConfig)
+    assert cell_conf.workingdir is not None
+    workingdir = cell_conf.workingdir
 
-    logger.debug("Ground net: {}".format(ground_net))
-    logger.debug("Supply net: {}".format(supply_net))
+    cfg = cell_conf.global_conf
+    assert isinstance(cfg, CharacterizationConfig)
 
-    logger.info("get_clock_to_output_delay() ...")
+    trip_points = cfg.trip_points
+    assert isinstance(trip_points, TripPoints)
+
+    supply_voltage = cfg.supply_voltage
+    supply_net = cell_conf.supply_net
+    ground_net = cell_conf.ground_net
+
+    logger.debug("get_clock_to_output_delay() ...")
 
     # Load include files.
     if setup_statements is None:
@@ -671,7 +661,7 @@ def get_clock_to_output_delay(
     simulation_title = f"Measure constraint '{data_in}'-'{clock_input}'->'{data_out}', rising_clock_edge={rising_clock_edge}."
 
     time, voltages, currents = simulate_cell(
-        cell_name=cell_name,
+        cell_name=cell_conf.cell_name,
         cell_ports=cell_ports,
         input_voltages=input_voltages,
         initial_voltages=initial_conditions,
@@ -682,12 +672,12 @@ def get_clock_to_output_delay(
         simulation_output_file=sim_output_file,
         max_simulation_time=simulation_end,
         simulation_title=simulation_title,
-        temperature=temperature,
+        temperature=cfg.temperature,
         output_load_capacitances=output_load_capacitances,
-        time_step=time_step,
+        time_step=cfg.time_resolution,
         setup_statements=setup_statements,
         ground_net=ground_net,
-        debug=debug,
+        debug=cfg.debug,
     )
 
     supply_current = currents[supply_net]
@@ -695,7 +685,7 @@ def get_clock_to_output_delay(
     clock_voltage = voltages[clock_input]
     output_voltage = voltages[data_out]
 
-    if debug:
+    if cfg.debug_plots:
         # Plot data in debug mode.
         logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
         import matplotlib
@@ -712,7 +702,7 @@ def get_clock_to_output_delay(
         plt.close()
 
     # Start of interesting interval
-    samples_per_period = int(period / time_step)
+    samples_per_period = int(period / cfg.time_resolution)
     start = int((t_clock_edge - period / 2) / period * samples_per_period)
 
     # Cut away initialization signals.
@@ -808,6 +798,49 @@ def test_plot_flipflop_setup_behavior():
 
     pos_edge_flipflop = True
 
+
+def characterize_flip_flop(
+        cell_conf: CellConfig
+):
+    """
+    Measure constraints (setup, hold) of a flip-flop.
+    :param cell_conf:
+    :return:
+    """
+    cfg = cell_conf.global_conf
+
+    # TODO: Put cell ports into cell_conf.
+    print("Read:", cell_conf.spice_netlist_file)
+    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
+    print("Ports: ", ports)
+
+    # TODO: No hardcoded signals.
+    data_in = 'D'
+    clock = 'CLK'
+    data_out = 'Q'
+    ground = cell_conf.ground_net
+    supply = cell_conf.supply_net
+
+    # TODO: pass as parameter
+    input_rise_time = 0.010e-9
+    input_fall_time = 0.010e-9
+
+    # TODO: pass as parameter
+    output_load_capacitances = {data_out: 0.06e-12}
+    logger.info(f"Output load capacitance: {output_load_capacitances} [F]")
+
+    # TODO: find appropriate simulation_duration_hint
+    simulation_duration_hint = 2e-9
+
+    # SPICE include files.
+    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
+    includes += cfg.setup_statements
+
+    vdd = cfg.supply_voltage
+    logger.info(f"Supply voltage: {vdd} V")
+
+    pos_edge_flipflop = True
+
     # Cache for faster re-evaluation of `delay_f`
     cache = dict()
 
@@ -832,7 +865,7 @@ def test_plot_flipflop_setup_behavior():
         result = cache.get(cache_tag)
         if result is None:
             result = get_clock_to_output_delay(
-                cell_name=subckt_name,
+                cell_conf=cell_conf,
                 cell_ports=ports,
                 clock_input=clock,
                 data_in=data_in,
@@ -841,17 +874,11 @@ def test_plot_flipflop_setup_behavior():
                 hold_time=hold_time,
                 rising_clock_edge=rising_clock_edge,
                 rising_data_edge=rising_data_edge,
-                supply_voltage=vdd,
                 input_rise_time=input_rise_time,
                 input_fall_time=input_fall_time,
-                trip_points=trip_points,
-                temperature=temperature,
                 output_load_capacitances=output_load_capacitances,
-                time_step=time_step,
                 clock_cycle_hint=simulation_duration_hint,
                 setup_statements=includes,
-                ground_net=ground,
-                supply_net=supply
             )
             cache[cache_tag] = result
         else:

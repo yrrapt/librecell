@@ -722,8 +722,12 @@ def main():
                     # Attach timing group to output pin group.
                     output_pin_group.groups.append(timing_group)
         elif isinstance(cell_type, SingleEdgeDFF):
-            pass
+            logger.info("Characterize single-edge triggered flip-flop.")
+
+            result = characterize_flip_flop(cell_conf)
+
         elif isinstance(cell_type, Latch):
+            logger.info("Characterize latch.")
             assert False, "Characterization of latches is not yet supported."
         else:
             assert False, f"Unsupported cell type: {type(cell_type)}"
