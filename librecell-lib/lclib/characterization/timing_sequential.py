@@ -984,7 +984,8 @@ def characterize_flip_flop(
         assert isinstance(min_setup_time_indep, float)
         delay = f(min_setup_time_indep)
         # Check if we really found the root of `f`.
-        assert np.allclose(0, delay, atol=xtol * 1000), "Failed to find solution for minimal setup time."
+        assert np.allclose(0, delay, atol=xtol * 10000), "Failed to find solution for minimal setup time." \
+                                                         " Try to decrease the simulation time step."
 
         return min_setup_time_indep, f(min_setup_time_indep) + max_delay
 
@@ -1029,7 +1030,8 @@ def characterize_flip_flop(
         assert isinstance(min_hold_time_indep, float)
         delay = f(min_hold_time_indep)
         # Check if we really found the root of `f`.
-        assert np.allclose(0, delay, atol=xtol * 10000), "Failed to find solution for minimal hold time."
+        assert np.allclose(0, delay, atol=xtol * 10000), "Failed to find solution for minimal hold time." \
+                                                         " Try to decrease the simulation time step."
 
         return min_hold_time_indep, f(min_hold_time_indep) + max_delay
 
