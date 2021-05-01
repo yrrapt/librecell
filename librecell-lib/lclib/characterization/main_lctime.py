@@ -307,18 +307,33 @@ def main():
 
     setup_statements = library_statements + include_statements
 
-    # TODO: No hardcoded data here!
+    # Setup array of output capacitances and input slews.
     output_capacitances = np.array([float(s.strip()) for s in args.output_loads.split(",")]) * 1e-12  # pF
     input_transition_times = np.array([float(s.strip()) for s in args.slew_times.split(",")]) * 1e-9  # ns
 
     logger.info(f"Output capacitances [pF]: {output_capacitances * 1e12}")
     logger.info(f"Input slew times [ns]: {input_transition_times * 1e9}")
 
+    # TODO: Make time resolution parametrizable.
+    time_resolution_seconds = 50e-12
+    logger.info("Time resolution = {}s".format(time_resolution_seconds))
+
+    # Setup configuration struct.
+    conf = CharacterizationConfig()
+    conf.supply_voltage = supply_voltage
+    conf.trip_points = trip_points
+    conf.timing_corner = calc_mode
+    conf.setup_statements = setup_statements
+    conf.time_resolution = time_resolution_seconds
+    conf.temperature = temperature
+    conf.workingdir = workingdir
+    conf.debug = args.debug
+
     # Characterize all cells in the list.
     def characterize_cell(cell_name: str) -> Group:
 
         # Create working directory if it does not exist yet.
-        cell_workingdir = os.path.join(workingdir, cell_name)
+        cell_workingdir = os.path.join(conf.workingdir, cell_name)
         if not os.path.exists(cell_workingdir):
             os.mkdir(cell_workingdir)
 
@@ -568,23 +583,15 @@ def main():
 
         logger.info("Run characterization.")
 
-        # TODO: Make time resolution parametrizable.
-        time_resolution_seconds = 50e-12
-        logger.info("Time resolution = {}s".format(time_resolution_seconds))
-
-        # Setup configuration struct.
-        conf = CharacterizationConfig()
-        conf.supply_voltage = supply_voltage
-        conf.trip_points = trip_points
-        conf.timing_corner = calc_mode
-        conf.setup_statements = setup_statements
-        conf.time_resolution = time_resolution_seconds
-        conf.temperature = temperature
-        conf.workingdir = cell_workingdir
-        conf.ground_net = gnd_pin
-        conf.supply_net = vdd_pin
-        conf.complementary_pins = differential_inputs
-        conf.debug = args.debug
+        # Setup cell specific configuration.
+        cell_conf = CellConfig()
+        cell_conf.cell_name = cell_name
+        cell_conf.global_conf = conf
+        cell_conf.complementary_pins = differential_inputs
+        cell_conf.ground_net = gnd_pin
+        cell_conf.supply_net = vdd_pin
+        cell_conf.workingdir = cell_workingdir
+        cell_conf.spice_netlist_file = netlist_file_table[cell_name]
 
         # Measure input pin capacitances.
         logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
@@ -594,12 +601,10 @@ def main():
             input_pin_group = new_cell_group.get_group('pin', input_pin)
 
             result = characterize_input_capacitances(
-                cell_name=cell_name,
                 input_pins=input_pins,
                 active_pin=input_pin,
                 output_pins=output_pins,
-                spice_netlist_file=netlist_file_table[cell_name],
-                conf=conf
+                cell_conf=cell_conf
             )
 
             input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_scale_factor
@@ -628,7 +633,6 @@ def main():
                 logger.info("Timing sense: {}".format(timing_sense))
 
                 result = characterize_comb_cell(
-                    cell_name=cell_name,
                     input_pins=input_pins,
                     output_pin=output_pin,
                     related_pin=related_pin,
@@ -637,11 +641,7 @@ def main():
                     total_output_net_capacitance=output_capacitances,
                     input_net_transition=input_transition_times,
 
-                    spice_netlist_file=netlist_file_table[cell_name],
-
-                    complementary_pins=differential_inputs,
-
-                    conf=conf
+                    cell_conf=cell_conf
                 )
 
                 # Get the table indices.

@@ -53,6 +53,41 @@ TripPoints = namedtuple("TripPoints", [
 ])
 
 
+class CellConfig:
+    """
+    Characterization settings specific for a single cell.
+    """
+
+    def __init__(self):
+        self.global_conf: CharacterizationConfig = None
+        """
+        General characterization configuration.
+        """
+
+        self.cell_name: str = None
+        """
+        Name of the cell, consistent with the name in the liberty file.
+        """
+
+        self.spice_netlist_file: str = None
+        """
+        Path to SPICE netlist containing the subcircuit of the cell.
+        """
+
+        self.complementary_pins: Dict[str, str] = dict()
+        """Mapping of non-inverting pin name to its complementary pin name of differential pairs.
+        Dict[non inverting pin, inverting pin]."""
+
+        self.workingdir: Optional[str] = None
+        "Directory where simulation files are put. Best on a ram-disk."
+
+        self.ground_net: str = 'GND'
+        "Name of the ground net."
+
+        self.supply_net: str = 'VDD'
+        "Name of the power supply net."
+
+
 class CharacterizationConfig:
     """
     General settings for the standard-cell characterization runs and simulations.
@@ -90,16 +125,6 @@ class CharacterizationConfig:
 
         self.workingdir: Optional[str] = None
         "Directory where simulation files are put. Best on a ram-disk."
-
-        self.ground_net: str = 'GND'
-        "Name of the ground net."
-
-        self.supply_net: str = 'VDD'
-        "Name of the power supply net."
-
-        self.complementary_pins: Dict[str, str] = dict()
-        """Mapping of non-inverting pin name to its complementary pin name of differential pairs.
-        Dict[non inverting pin, inverting pin]."""
 
         self.debug: bool = False
         "Enable more verbose debugging output."

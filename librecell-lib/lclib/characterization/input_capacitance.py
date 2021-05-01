@@ -39,13 +39,12 @@ from scipy import interpolate
 logger = logging.getLogger(__name__)
 
 
-def characterize_input_capacitances(cell_name: str,
-                                    input_pins: List[str],
-                                    active_pin: str,
-                                    output_pins: List[str],
-                                    spice_netlist_file: str,
-                                    conf: CharacterizationConfig
-                                    ):
+def characterize_input_capacitances(
+        input_pins: List[str],
+        active_pin: str,
+        output_pins: List[str],
+        cell_conf: CellConfig
+):
     """
     Estimate the input capacitance of the `active_pin`.
     The estimation is done by simulating a constant current flowing into an input and measuring the
@@ -53,37 +52,35 @@ def characterize_input_capacitances(cell_name: str,
     yields the transported charge which together with the voltage difference tells the capacitance.
     The measurement is done for all combinations of static inputs (all other inputs that are not measured).
 
-    :param cell_name: Name of the cell to be measured. This must match with the names used in the netlist and liberty file.
     :param input_pins: List of all input pin names.
     :param active_pin: Name of the pin to be measured.
     :param output_pins: List of cell output pins.
-    :param spice_netlist_file: The file containing the netlist of this cell.
-    :param config: General parameters for the characterization.
+    :param config: Parameters for the characterization.
 
     """
 
-    # Create temporary working directory.
-    if conf.workingdir is None:
-        workingdir = tempfile.mkdtemp("lctime-")
+    assert isinstance(cell_conf, CellConfig)
+    assert isinstance(cell_conf.global_conf, CharacterizationConfig)
+    cfg = cell_conf.global_conf
 
-    inputs_inverted = conf.complementary_pins.values()
+    inputs_inverted = cell_conf.complementary_pins.values()
     assert active_pin not in inputs_inverted, f"Active pin '{active_pin}' must not be an inverted pin of a differential pair."
     input_pins_non_inverted = [p for p in input_pins if p not in inputs_inverted]
-    active_pin_inverted = conf.complementary_pins.get(active_pin)
+    active_pin_inverted = cell_conf.complementary_pins.get(active_pin)
 
     logger.debug("characterize_input_capacitances()")
     # Find ports of the SPICE netlist.
-    ports = get_subcircuit_ports(spice_netlist_file, cell_name)
+    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
     logger.debug("Subcircuit ports: {}".format(", ".join(ports)))
 
-    logger.debug("Ground net: {}".format(conf.ground_net))
-    logger.debug("Supply net: {}".format(conf.supply_net))
+    logger.debug("Ground net: {}".format(cell_conf.ground_net))
+    logger.debug("Supply net: {}".format(cell_conf.supply_net))
 
-    vdd = conf.supply_voltage
+    vdd = cfg.supply_voltage
     logger.debug("Vdd: {} V".format(vdd))
 
     # Create a list of include files.
-    setup_statements = conf.setup_statements + [f".include {spice_netlist_file}"]
+    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
 
     # Load include files.
     for setup in setup_statements:
@@ -94,14 +91,14 @@ def characterize_input_capacitances(cell_name: str,
     output_load_statements = "\n".join((f"Cload_{p} {p} GND 0" for p in output_pins))
 
     # Choose a maximum time to run the simulation.
-    time_max = conf.time_resolution * 1e6
+    time_max = cfg.time_resolution * 1e6
 
     # Find function to summarize different timing arcs.
     reduction_function = {
         CalcMode.WORST: max,
         CalcMode.BEST: min,
         CalcMode.TYPICAL: np.mean
-    }[conf.timing_corner]
+    }[cfg.timing_corner]
     logger.info("Reduction function for summarizing multiple timing arcs: {}".format(reduction_function.__name__))
 
     logger.debug("Measuring input capacitance.")
@@ -124,15 +121,15 @@ def characterize_input_capacitances(cell_name: str,
         for input_rising in [True, False]:
 
             # Get voltages at static inputs.
-            input_voltages = {net: conf.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
+            input_voltages = {net: cfg.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
 
             # Add input voltages for inverted inputs of differential pairs.
             for p in static_input_nets:
-                inv = conf.complementary_pins.get(p)
+                inv = cfg.complementary_pins.get(p)
                 if inv is not None:
                     assert inv not in input_voltages
                     # Add the inverted input voltage.
-                    input_voltages[inv] = conf.supply_voltage - input_voltages[p]
+                    input_voltages[inv] = cfg.supply_voltage - input_voltages[p]
 
             logger.debug("Static input voltages: {}".format(input_voltages))
 
@@ -140,12 +137,12 @@ def characterize_input_capacitances(cell_name: str,
             file_name = f"lctime_input_capacitance_" \
                         f"{''.join((f'{net}={v}' for net, v in input_voltages.items()))}_" \
                         f"{'rising' if input_rising else 'falling'}"
-            sim_file = os.path.join(conf.workingdir, f"{file_name}.sp")
+            sim_file = os.path.join(cfg.workingdir, f"{file_name}.sp")
 
             # Output file for simulation results.
-            sim_output_file = os.path.join(conf.workingdir, f"{file_name}_output.txt")
+            sim_output_file = os.path.join(cfg.workingdir, f"{file_name}_output.txt")
             # File for debug plot of the waveforms.
-            sim_plot_file = os.path.join(conf.workingdir, f"{file_name}_plot.svg")
+            sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
 
             # Switch polarity of current for falling edges.
             _input_current = input_current if input_rising else -input_current
@@ -161,12 +158,12 @@ def characterize_input_capacitances(cell_name: str,
                 breakpoint_statement = f"stop when v({active_pin}) < {vdd * 0.1}"
 
             static_supply_voltage_statements = "\n".join(
-                (f"Vinput_{net} {conf.ground_net} {net} {voltage}" for net, voltage in input_voltages.items()))
+                (f"Vinput_{net} {cell_conf.ground_net} {net} {voltage}" for net, voltage in input_voltages.items()))
 
             # Initial node voltages.
             initial_conditions = {
                 active_pin: initial_voltage,
-                conf.supply_net: conf.supply_voltage
+                cell_conf.supply_net: cfg.supply_voltage
             }
             # Add static input voltages
             initial_conditions.update(input_voltages)
@@ -176,11 +173,11 @@ def characterize_input_capacitances(cell_name: str,
 
             # Create SPICE statements for the input current sources that drive the active pin.
             input_current_source_statements = [
-                f"Iinput {conf.ground_net} {active_pin} PULSE(0 {_input_current} 1ns 10ps 0ps 100s)"
+                f"Iinput {cell_conf.ground_net} {active_pin} PULSE(0 {_input_current} 1ns 10ps 0ps 100s)"
             ]
             if active_pin_inverted is not None:
                 input_current_source_statements.append(
-                    f"Iinput_inv {conf.ground_net} {active_pin_inverted} PULSE(0 {-_input_current} 1ns 10ps 0ps 100s)"
+                    f"Iinput_inv {cell_conf.ground_net} {active_pin_inverted} PULSE(0 {-_input_current} 1ns 10ps 0ps 100s)"
                 )
             input_current_source_statements = "\n".join(input_current_source_statements)
 
@@ -188,15 +185,15 @@ def characterize_input_capacitances(cell_name: str,
             sim_netlist = f"""* librecell {__name__}
 .title Measure input capacitance of pin {active_pin}
 
-.option TEMP={conf.temperature}
+.option TEMP={cfg.temperature}
 
 {setup_statements_string}
 
-Xcircuit_under_test {" ".join(ports)} {cell_name}
+Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
 
 {output_load_statements}
 
-Vsupply {conf.supply_net} {conf.ground_net} {conf.supply_voltage}
+Vsupply {cell_conf.supply_net} {cell_conf.ground_net} {cfg.supply_voltage}
 
 * Input current sources.
 {input_current_source_statements}
@@ -217,7 +214,7 @@ set wr_vecnames
 {breakpoint_statement}
 
 * Transient simulation, use initial conditions.
-tran {conf.time_resolution} {time_max} uic
+tran {cfg.time_resolution} {time_max} uic
 wrdata {sim_output_file} v({active_pin}) {" ".join((f"v({p})" for p in output_pins))}
 exit
 .endc
@@ -242,14 +239,14 @@ exit
 
             if sim_data.ndim != 2:
                 logger.error("Simulation failed. No data was written to the output file.")
-                if conf.debug:
+                if cfg.debug:
                     logger.error(f"ngspice: {stderr}")
                 assert False, "Simulation failed. No data was written to the output file."
 
             time = sim_data[:, 0]
             input_voltage = sim_data[:, 1]
 
-            if conf.debug_plots:
+            if cfg.debug_plots:
                 logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
                 import matplotlib
                 matplotlib.use('Agg')
@@ -266,12 +263,12 @@ exit
             #
             # TODO: How to chose the thresholds?
             if input_rising:
-                thresh1 = vdd * conf.trip_points.slew_lower_threshold_rise
-                thresh2 = vdd * conf.trip_points.slew_upper_threshold_rise
+                thresh1 = vdd * cfg.trip_points.slew_lower_threshold_rise
+                thresh2 = vdd * cfg.trip_points.slew_upper_threshold_rise
                 assert thresh1 < thresh2
             else:
-                thresh1 = vdd * conf.trip_points.slew_upper_threshold_fall
-                thresh2 = vdd * conf.trip_points.slew_lower_threshold_fall
+                thresh1 = vdd * cfg.trip_points.slew_upper_threshold_fall
+                thresh2 = vdd * cfg.trip_points.slew_lower_threshold_fall
                 assert thresh1 > thresh2
 
             # Find transition times for both thresholds.
