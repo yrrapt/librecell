@@ -573,6 +573,25 @@ def main():
         for pin_group in new_cell_group.get_groups('pin'):
             pin_group.groups = [g for g in pin_group.groups if g.group_name != 'timing']
 
+        # Create missing pin groups.
+        for pin in input_pins_non_inverted + output_pins:
+            pin_group = new_cell_group.get_group('pin', pin)
+            if pin_group is None:
+                pin_group = Group('pin', pin)
+                new_cell_group.groups.append(pin_group)
+
+        # Set 'direction' attribute of input pins.
+        for pin in input_pins_non_inverted:
+            pin_group = new_cell_group.get_group('pin', pin)
+            if 'direction' not in pin_group:
+                pin_group['direction'] = 'input'
+
+        # Set 'direction' attribute of output pins.
+        for pin in output_pins:
+            pin_group = new_cell_group.get_group('pin', pin)
+            if 'direction' not in pin_group:
+                pin_group['direction'] = 'output'
+
         # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
         for input_pin in input_pins_non_inverted:
             input_pin_group = new_cell_group.get_group('pin', input_pin)
