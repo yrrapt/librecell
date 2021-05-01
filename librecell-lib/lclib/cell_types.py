@@ -70,21 +70,35 @@ class SingleEdgeDFF(CellType):
     """
 
     def __init__(self):
-        self.clock_signal = None  # Name of the clock signal.
-        self.clock_edge_polarity = None  # True = rising, False = falling
+        self.clock_signal = None
+        "Name of the clock signal."
+        self.clock_edge_polarity = None
+        "True = rising, False = falling"
+        self.clocked_on: boolalg.Boolean = None
+        "Clocked when the value of the boolean expression rises to true."
+        self.next_state: boolalg.Boolean = None
+        "Next state that follows a clock edge."
 
-        self.data_in = None  # Expression for the input data.
-        self.data_out = None  # Name of the non-inverted data output net.
-        self.data_out_inv = None  # Name of the inverted data output net (if any).
+        self.data_in = None
+        "Expression for the input data."
+        self.data_out = None
+        "Name of the non-inverted data output net."
+        self.data_out_inv = None
+        "Name of the inverted data output net (if any)."
 
-        self.scan_enable = None  # Name of the scan-enable input.
+        self.scan_enable = None
+        "Name of the scan-enable input."
         self.scan_in = None
 
-        self.async_set_signal = None  # Name of the asynchronous preset signal.
-        self.async_set_polarity = None  # Polarity of the signal (False: active low, True: active high).
+        self.async_preset = None
+        "Name of the asynchronous preset signal."
+        self.async_set_polarity = None
+        "Polarity of the signal (False: active low, True: active high)."
 
-        self.async_reset_signal = None  # Name of the asynchronous clear signal.
-        self.async_reset_polarity = None  # Polarity of the signal (False: active low, True: active high).
+        self.async_clear = None
+        "Name of the asynchronous clear signal."
+        self.async_reset_polarity = None
+        "Polarity of the signal (False: active low, True: active high)."
 
     def __str__(self):
         return self.human_readable_description()
@@ -106,8 +120,8 @@ class SingleEdgeDFF(CellType):
     inverted output: {self.data_out_inv}
     next data: {self.data_in}
 
-    asynchronous preset: {self.async_set_signal} {preset_polarity}
-    asynchronous clear: {self.async_reset_signal} {clear_polarity}
+    asynchronous preset: {self.async_preset} {preset_polarity}
+    asynchronous clear: {self.async_clear} {clear_polarity}
 
     scan enable: {self.scan_enable}
     scan input: {self.scan_in}

@@ -480,7 +480,29 @@ def main():
             if len(ff_group) != 1:
                 assert False, "Cannot characterize cells with more than one 'ff' group."
             logger.info("'ff' group found. Cell is expected to be a flip-flop.")
+            ff_group = ff_group[0]
+            assert isinstance(ff_group, Group)
+
+            # Get state names.
+            iq, iqn = ff_group.args
+            clocked_on = ff_group.get_boolean_function('clocked_on')
+            next_state = ff_group.get_boolean_function('next_state')
+
+            clear = ff_group.get_boolean_function('clear')
+            preset = ff_group.get_boolean_function('preset')
+
+            clear_preset_var1 = ff_group.get_boolean_function('clear_preset_var1')
+            clear_preset_var2 = ff_group.get_boolean_function('clear_preset_var2')
+
+            clocked_on_also = ff_group.get_boolean_function('clocked_on_also')
+            power_down_function = ff_group.get_boolean_function('power_down_function')
+
             cell_type = SingleEdgeDFF()
+            cell_type.clocked_on = clocked_on
+            cell_type.next_state = next_state
+            cell_type.async_preset = preset
+            cell_type.async_clear = clear
+
         elif latch_group:
             if len(latch_group) != 1:
                 assert False, "Cannot characterize cells with more than one 'latch' group."
@@ -630,74 +652,81 @@ def main():
             input_pin_group['fall_capacitance'] = result['fall_capacitance'] * capacitance_unit_scale_factor
             input_pin_group['capacitance'] = result['capacitance'] * capacitance_unit_scale_factor
 
-        # Measure timing for all input-output arcs.
-        logger.debug("Measuring timing.")
-        for output_pin in output_pins:
-            output_pin_group = new_cell_group.get_group('pin', output_pin)
+        if isinstance(cell_type, Combinational):
+            # Measure timing for all input-output arcs.
+            logger.debug("Measuring combinational delay arcs.")
+            for output_pin in output_pins:
+                output_pin_group = new_cell_group.get_group('pin', output_pin)
 
-            # Insert boolean function of output.
-            output_pin_group.set_boolean_function('function', output_functions_symbolic[output_pin])
+                # Insert boolean function of output.
+                output_pin_group.set_boolean_function('function', output_functions_symbolic[output_pin])
 
-            for related_pin in input_pins_non_inverted:
+                for related_pin in input_pins_non_inverted:
 
-                related_pin_inverted = differential_inputs.get(related_pin)
-                if related_pin_inverted:
-                    logger.info("Timing arc (differential input): ({}, {}) -> {}"
-                                .format(related_pin, related_pin_inverted, output_pin))
-                else:
-                    logger.info("Timing arc: {} -> {}".format(related_pin, output_pin))
+                    related_pin_inverted = differential_inputs.get(related_pin)
+                    if related_pin_inverted:
+                        logger.info("Timing arc (differential input): ({}, {}) -> {}"
+                                    .format(related_pin, related_pin_inverted, output_pin))
+                    else:
+                        logger.info("Timing arc: {} -> {}".format(related_pin, output_pin))
 
-                # Get timing sense of this arc.
-                timing_sense = is_unate_in_xi(output_functions[output_pin], related_pin).name.lower()
-                logger.info("Timing sense: {}".format(timing_sense))
+                    # Get timing sense of this arc.
+                    timing_sense = is_unate_in_xi(output_functions[output_pin], related_pin).name.lower()
+                    logger.info("Timing sense: {}".format(timing_sense))
 
-                result = characterize_comb_cell(
-                    input_pins=input_pins,
-                    output_pin=output_pin,
-                    related_pin=related_pin,
-                    output_functions=output_functions,
+                    result = characterize_comb_cell(
+                        input_pins=input_pins,
+                        output_pin=output_pin,
+                        related_pin=related_pin,
+                        output_functions=output_functions,
 
-                    total_output_net_capacitance=output_capacitances,
-                    input_net_transition=input_transition_times,
+                        total_output_net_capacitance=output_capacitances,
+                        input_net_transition=input_transition_times,
 
-                    cell_conf=cell_conf
-                )
-
-                # Get the table indices.
-                # TODO: get correct index/variable mapping from liberty file.
-                index_1 = result['total_output_net_capacitance'] * capacitance_unit_scale_factor
-                index_2 = result['input_net_transition'] * time_unit_scale_factor
-                # TODO: remember all necessary templates and create template tables.
-                table_template_name = 'delay_template_{}x{}'.format(len(index_1), len(index_2))
-
-                # Create liberty timing tables.
-                timing_tables = []
-                for table_name in ['cell_rise', 'cell_fall', 'rise_transition', 'fall_transition']:
-                    table = Group(
-                        table_name,
-                        args=[table_template_name],
+                        cell_conf=cell_conf
                     )
 
-                    table.set_array('index_1', index_1)
-                    table.set_array('index_2', index_2)
-                    table.set_array('values', result[table_name] * time_unit_scale_factor)
+                    # Get the table indices.
+                    # TODO: get correct index/variable mapping from liberty file.
+                    index_1 = result['total_output_net_capacitance'] * capacitance_unit_scale_factor
+                    index_2 = result['input_net_transition'] * time_unit_scale_factor
+                    # TODO: remember all necessary templates and create template tables.
+                    table_template_name = 'delay_template_{}x{}'.format(len(index_1), len(index_2))
 
-                    timing_tables.append(table)
+                    # Create liberty timing tables.
+                    timing_tables = []
+                    for table_name in ['cell_rise', 'cell_fall', 'rise_transition', 'fall_transition']:
+                        table = Group(
+                            table_name,
+                            args=[table_template_name],
+                        )
 
-                # Create the liberty timing group.
-                timing_attributes = {
-                    'related_pin': [EscapedString(related_pin)],
-                    'timing_sense': [timing_sense]
-                }
+                        table.set_array('index_1', index_1)
+                        table.set_array('index_2', index_2)
+                        table.set_array('values', result[table_name] * time_unit_scale_factor)
 
-                timing_group = Group(
-                    'timing',
-                    attributes=timing_attributes,
-                    groups=timing_tables
-                )
+                        timing_tables.append(table)
 
-                # Attach timing group to output pin group.
-                output_pin_group.groups.append(timing_group)
+                    # Create the liberty timing group.
+                    timing_attributes = {
+                        'related_pin': [EscapedString(related_pin)],
+                        'timing_sense': [timing_sense]
+                    }
+
+                    timing_group = Group(
+                        'timing',
+                        attributes=timing_attributes,
+                        groups=timing_tables
+                    )
+
+                    # Attach timing group to output pin group.
+                    output_pin_group.groups.append(timing_group)
+        elif isinstance(cell_type, SingleEdgeDFF):
+            pass
+        elif isinstance(cell_type, Latch):
+            assert False, "Characterization of latches is not yet supported."
+        else:
+            assert False, f"Unsupported cell type: {type(cell_type)}"
 
         assert isinstance(new_cell_group, Group)
         return new_cell_group

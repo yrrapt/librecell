@@ -349,9 +349,9 @@ class DFFExtractor:
 
             # Store the results in the flip-flop description object.
             if async_set_signals:
-                dff.async_set_signal, dff.async_set_polarity = async_set_signals[0]
+                dff.async_preset, dff.async_set_polarity = async_set_signals[0]
             if async_reset_signals:
-                dff.async_reset_signal, dff.async_reset_polarity = async_reset_signals[0]
+                dff.async_clear, dff.async_reset_polarity = async_reset_signals[0]
 
         ff_output_data = []
         for output in outputs:
