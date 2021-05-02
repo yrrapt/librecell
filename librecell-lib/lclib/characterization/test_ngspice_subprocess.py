@@ -7,6 +7,7 @@ import asyncio
 import logging
 import threading, queue
 import time
+from typing import List
 
 
 def test_simple_simulation():
@@ -114,7 +115,10 @@ class NgSpiceInteractive:
                 line = self.proc.stdout.readline()
                 if line is None:
                     break
-                # print("stdout:", line)
+                line = line.strip()
+                if not line:  # Skip empty lines.
+                    continue
+                print("stdout:", line)
                 self._from_stdout.put(line)
 
         def read_stderr():
@@ -122,7 +126,15 @@ class NgSpiceInteractive:
                 line = self.proc.stderr.readline()
                 if line is None:
                     break
-                # print("stderr:", line)
+                line = line.strip()
+                if not line:  # Skip empty lines.
+                    continue
+                print("stderr:", line)
+                # Forward error messages to the logger.
+                if 'Error' in line:
+                    self.logger.error(line)
+                elif 'Warning' in line:
+                    self.logger.warning(line)
                 self._from_stderr.put(line)
 
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
@@ -156,10 +168,16 @@ class NgSpiceInteractive:
         except queue.Empty:
             return None
 
-    def cmd(self, cmd: str):
-        self.proc.stdin.write(cmd)
-        self.proc.stdin.write('\n')
+    def _write(self, data: str):
+        self.proc.stdin.write(data)
+
+    def _flush(self):
         self.proc.stdin.flush()
+
+    def cmd(self, cmd: str):
+        self._write(cmd)
+        self._write('\n')
+        self._flush()
 
     def source(self, file: str):
         """
@@ -167,8 +185,33 @@ class NgSpiceInteractive:
         """
         self.cmd(f"source {file}")
 
-    def get_data(self, signals):
+    def load_circuit(self, circuit: str):
+        """
+        Load a circuit over stdin.
+        :param circuit:
+        :return:
+        """
+        lines = circuit.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line:
+                self._write("circbyline ")
+                self._write(line)
+                self._write('\n')
+                self._flush()
+
+    def get_data(self, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
         self.drop_stdout()
+
+        signals = []
+        if voltages is not None:
+            signals.extend((f"v({v})" for v in voltages))
+
+        if currents is not None:
+            signals.extend((f"v({i})" for i in currents))
+
+        signals = " ".join(signals)
+
         self.cmd(f"print {signals}")
         # time.sleep(1)
 
@@ -199,6 +242,7 @@ class NgSpiceInteractive:
         # Remove index.
         data = data[:, 1:]
         print(data.shape)
+        return data
 
 
 def test_ngspice_subprocess_class():
@@ -232,17 +276,25 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
     ns = NgSpiceInteractive()
     ns.start()
 
-    ns.source(sim_file)
-    # ns.cmd(spice_simulation_netlist)
-    ns.cmd('set filetype=ascii')
-    ns.cmd('tran 1ms 10ms')
-    # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
-    ns.get_data('v(VDD) v(Y)')
+    # ns.source(sim_file)
+    ns.load_circuit(spice_simulation_netlist)
 
-    line = ns.readline()
-    while line is not None:
-        print(line.strip())
-        line = ns.readline()
+    # ns.cmd(spice_simulation_netlist)
+    # ns.cmd('set filetype=ascii')
+    ns.cmd('tran 1ms 1ms')
+    # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
+    ns.drop_stderr()
+    try:
+        # time.sleep(1)
+        data1 = ns.get_data(voltages=['VDD', 'Y'], currents=['VDD'])
+        print(data1)
+        # data2 = ns.get_data(voltages=['VDD', 'Y'], currents=['VDD'])
+        # print(data2)
+    except Exception as e:
+        print(e)
+        pass
+    err = ns.readline_err()
+    print(err)
 
     ns.cmd('quit')
 
