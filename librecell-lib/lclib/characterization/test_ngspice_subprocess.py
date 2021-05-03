@@ -185,6 +185,34 @@ class NgSpiceInteractive:
         """
         self.cmd(f"source {file}")
 
+    def reset(self):
+        self.cmd('reset')
+
+    def tran(self, t_step, t_stop, t_start=None, uic=None) -> int:
+        """
+
+        :param t_step:
+        :param t_stop:
+        :param t_start:
+        :param uic:
+        :return: Return number of data points.
+        """
+        self._flush()
+        self.cmd(f'tran {t_step} {t_stop}')
+
+        # Find number of data points.
+        num_rows = 0
+        while True:
+            line = self.readline(timeout=None)
+            assert line is not None
+            if 'No. of Data Rows' in line:
+                _, num_rows_str = line.split(':', 2)
+                num_rows = int(num_rows_str)
+                break
+        print(f"Number of rows: {num_rows}")
+        assert num_rows > 0
+        return num_rows
+
     def load_circuit(self, circuit: str):
         """
         Load a circuit over stdin.
@@ -200,7 +228,7 @@ class NgSpiceInteractive:
                 self._write('\n')
                 self._flush()
 
-    def get_data(self, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
+    def get_data(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
         self.drop_stdout()
 
         signals = []
@@ -208,23 +236,11 @@ class NgSpiceInteractive:
             signals.extend((f"v({v})" for v in voltages))
 
         if currents is not None:
-            signals.extend((f"v({i})" for i in currents))
+            signals.extend((f"i({i})" for i in currents))
 
         signals = " ".join(signals)
 
         self.cmd(f"print {signals}")
-        # time.sleep(1)
-
-        num_rows = 0
-        while True:
-            line = self.readline(timeout=None)
-            assert line is not None
-            if 'No. of Data Rows' in line:
-                _, num_rows_str = line.split(':', 2)
-                num_rows = int(num_rows_str)
-                break
-        print(f"Number of rows: {num_rows}")
-        assert num_rows > 0
 
         rows = []
         i = 0
@@ -281,18 +297,17 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
 
     # ns.cmd(spice_simulation_netlist)
     # ns.cmd('set filetype=ascii')
-    ns.cmd('tran 1ms 1ms')
+    # ns.cmd('tran 1ms 1ms')
+    nrows = ns.tran(t_step='1ms', t_stop='1ms')
+    data1 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+    print(data1)
+
+    nrows = ns.tran(t_step='1ms', t_stop='2ms')
+    data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+    print(data2)
     # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
     ns.drop_stderr()
-    try:
-        # time.sleep(1)
-        data1 = ns.get_data(voltages=['VDD', 'Y'], currents=['VDD'])
-        print(data1)
-        # data2 = ns.get_data(voltages=['VDD', 'Y'], currents=['VDD'])
-        # print(data2)
-    except Exception as e:
-        print(e)
-        pass
+
     err = ns.readline_err()
     print(err)
 
