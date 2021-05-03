@@ -726,7 +726,8 @@ def get_clock_to_output_delay(
     if rising_data_edge:
         output_threshold = trip_points.output_threshold_rise
     else:
-        output_threshold = trip_points.output_threshold_fall
+        # Invert threshold because the signal gets also normalized.
+        output_threshold = 1-trip_points.output_threshold_fall
 
     # Get logical values at start and end.
     logic_out_start = output_voltage[0] > output_threshold
