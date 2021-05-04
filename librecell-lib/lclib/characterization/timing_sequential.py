@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 def ff_find_stabilization_time(
-        cell_name: str,
+        cell_config: CellConfig,
         cell_ports: List[str],
         clock_input: str,
         data_in: str,
@@ -53,21 +53,13 @@ def ff_find_stabilization_time(
         rising_data_edge: bool,
         clock_rise_time: float,
         clock_fall_time: float,
-        trip_points: TripPoints,
-        temperature: float = 25,
         output_load_capacitances: Dict[str, float] = None,
         time_step: float = 100.0e-12,
         max_simulation_time: float = 1e-7,
-        setup_statements: List[str] = None,
-        workingdir: Optional[str] = None,
-        ground_net: str = 'GND',
-        supply_net: str = 'VDD',
-        debug: bool = False,
 ) -> float:
     """Find the time it takes for the data output signal of a flip-flop to stabilize after an active clock edge.
     This is used to estimate the order of magnitude of the switching speed which will be used in subsequent simulations.
     
-    :param cell_name: Name of the cell to be characterized. Must match with the name used in netlist and liberty.
     :param cell_ports: All circuit pins/ports in the same ordering as used in the SPICE circuit model.
     :param clock_input: Name of the clock pin ('related pin').
     :param data_in: Name of the data-in pin ('constrained pin').
@@ -75,18 +67,15 @@ def ff_find_stabilization_time(
     :param supply_voltage: Supply voltage in volts.
     :param clock_rise_time: Rise time of the clock signal.
     :param clock_fall_time: Fall time of the clock signal.
-    :param trip_points:
-    :param temperature: Temperature of the simulation.
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
     :param time_step: Simulation time step.
-    :param setup_statements: List of include files (such as transistor models).
-    :param ground_net: The name of the ground net.
-    :param supply_net: The name of the supply net.
-    :param workingdir: Directory where the simulation files will be put. If not specified a temporary directory will be created.
-    :param debug: Enable more verbose debugging output such as plots of the simulations.
     """
 
+    cfg = cell_config.global_conf
+
     t_clock_edge = time_step * 16  # Rough estimate of when to start the clock edge.
+
+    trip_points = cfg.trip_points
 
     # Generate the clock edge relative to which the delay will be measured.
     clock_edge = StepWave(
@@ -105,23 +94,23 @@ def ff_find_stabilization_time(
     simulation_title = "Estimate flip-flop propagation speed (CLK->D_Out)."
 
     time, voltages, currents = simulate_cell(
-        cell_name=cell_name,
+        cell_name=cell_config.cell_name,
         cell_ports=cell_ports,
         input_voltages=input_voltages,
         initial_voltages=initial_conditions,
         breakpoint_statements=breakpoints,
         output_voltages=[data_in, clock_input, data_out],
-        output_currents=[supply_net],
+        output_currents=[cell_config.supply_net],
         simulation_file=sim_file,
         simulation_output_file=sim_output_file,
         max_simulation_time=max_simulation_time,
         simulation_title=simulation_title,
-        temperature=temperature,
+        temperature=cfg.temperature,
         output_load_capacitances=output_load_capacitances,
         time_step=time_step,
-        setup_statements=setup_statements,
-        ground_net=ground_net,
-        debug=debug,
+        setup_statements=cfg.setup_statements,
+        ground_net=cfg.ground_net,
+        debug=cfg.debug,
     )
 
     raise NotImplementedError()
@@ -985,7 +974,8 @@ def characterize_flip_flop(
         assert isinstance(min_setup_time_indep, float)
         delay = f(min_setup_time_indep)
         # Check if we really found the root of `f`.
-        assert np.allclose(0, delay, atol=xtol * 10000), "Failed to find solution for minimal setup time." \
+        print(delay)
+        assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal setup time." \
                                                          " Try to decrease the simulation time step."
 
         return min_setup_time_indep, f(min_setup_time_indep) + max_delay
@@ -1031,7 +1021,8 @@ def characterize_flip_flop(
         assert isinstance(min_hold_time_indep, float)
         delay = f(min_hold_time_indep)
         # Check if we really found the root of `f`.
-        assert np.allclose(0, delay, atol=xtol * 10000), "Failed to find solution for minimal hold time." \
+        print(delay)
+        assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal hold time." \
                                                          " Try to decrease the simulation time step."
 
         return min_hold_time_indep, f(min_hold_time_indep) + max_delay
