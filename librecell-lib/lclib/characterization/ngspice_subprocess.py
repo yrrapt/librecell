@@ -57,7 +57,7 @@ def run_simulation(sim_file: str, ngspice_executable: str = 'ngspice'):
         raise FileNotFoundError(msg)
 
 
-def simulate_cell_old(
+def simulate_cell(
         cell_name: str,
         cell_ports: List[str],
         input_voltages: Dict[str, Union[PieceWiseLinear, float]],
@@ -470,7 +470,7 @@ class NgSpiceInteractive:
         return data
 
 
-def simulate_cell(
+def simulate_cell_v2(
         cell_name: str,
         cell_ports: List[str],
         input_voltages: Dict[str, Union[PieceWiseLinear, float]],
