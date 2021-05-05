@@ -494,6 +494,8 @@ def get_clock_to_output_delay(
         rising_data_edge: bool,
         input_rise_time: float,
         input_fall_time: float,
+        clock_rise_time: float,
+        clock_fall_time: float,
         output_load_capacitances: Dict[str, float] = None,
         clock_cycle_hint: float = 200.0e-12,
         setup_statements: List[str] = None,
@@ -549,8 +551,8 @@ def get_clock_to_output_delay(
         start_time=period,
         duration=period,
         polarity=rising_clock_edge,
-        rise_time=input_rise_time,
-        fall_time=input_fall_time,
+        rise_time=clock_rise_time,
+        fall_time=clock_fall_time,
         rise_threshold=trip_points.input_threshold_rise,
         fall_threshold=trip_points.input_threshold_fall
     )
@@ -716,7 +718,7 @@ def get_clock_to_output_delay(
         output_threshold = trip_points.output_threshold_rise
     else:
         # Invert threshold because the signal gets also normalized.
-        output_threshold = 1-trip_points.output_threshold_fall
+        output_threshold = 1 - trip_points.output_threshold_fall
 
     # Get logical values at start and end.
     logic_out_start = output_voltage[0] > output_threshold
@@ -789,38 +791,144 @@ def test_plot_flipflop_setup_behavior():
     pos_edge_flipflop = True
 
 
-def characterize_flip_flop(
-        cell_conf: CellConfig
-):
+def characterize_flip_flop_setup_hold(
+        cell_conf: CellConfig,
+
+        data_in_pin: str,
+        data_out_pin: str,
+        clock_pin: str,
+
+        clock_transition_time: float,
+
+        total_output_net_capacitance: np.ndarray,
+        input_net_transition: np.ndarray,
+
+        static_input_voltages: Dict[str, float] = None
+
+) -> Dict[str, np.ndarray]:
+    """
+    Find the setup and hold constraints between the `data_in_pin` and the `clock_pin` such
+    that the output on `data_output_pin` is correct.
+    This is done for all combinations of output capacitances and input transition times.
+
+    :param cell_conf:
+    :param data_in_pin: The constrained pin.
+    :param data_out_pin: Data output pin of the flip-flop.
+    :param clock_pin: The related pin.
+    :param clock_transition_time: Transition time of the clock signal (rising and falling edge).
+    :param total_output_net_capacitance: List of output capacitances at `data_out_pin`.
+    :param input_net_transition: List of input transition times.
+    :param static_input_voltages: Static input signals other than VDD/GND.
+    This should include clear/preset and scan_enable signals, if there are any.
+    :return:
+    """
+    def f(input_transition_time, output_cap):
+        result = measure_flip_flop_setup_hold(
+            cell_conf=cell_conf,
+            data_in_pin=data_in_pin,
+            data_out_pin=data_out_pin,
+            clock_pin=clock_pin,
+            output_load_capacitances={data_out_pin: output_cap},
+            data_rise_time=input_transition_time,
+            data_fall_time=input_transition_time,
+            clock_transition_time=clock_transition_time,
+            static_input_voltages=static_input_voltages
+        )
+
+        return (
+            # Setup
+            result.dependent_setup_time_rise,
+            result.dependent_setup_time_fall,
+            result.dependent_setup_delay_rise,
+            result.dependent_setup_delay_fall,
+            # Hold
+            result.dependent_hold_time_rise,
+            result.dependent_hold_time_fall,
+            result.dependent_hold_delay_rise,
+            result.dependent_hold_delay_fall,
+        )
+
+    f_vec = np.vectorize(f)
+
+    xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
+
+    # Evaluate timing on the input_slew*load_capacitance grid.
+    (setup_time_rise, setup_time_fall, setup_delay_rise, setup_delay_fall,
+     hold_time_rise, hold_time_fall, hold_delay_rise, hold_delay_fall) = f_vec(xx, yy)
+
+    # TODO: Which delay should be chosen? Min, max, average?
+    cell_rise = setup_delay_rise
+    cell_fall = setup_delay_fall
+
+    return {
+        'total_output_net_capacitance': total_output_net_capacitance,
+        'input_net_transition': input_net_transition,
+        'setup_rise_constraint': setup_time_rise,
+        'setup_fall_constraint': setup_time_fall,
+        'hold_rise_constraint': hold_time_rise,
+        'hold_fall_constraint': hold_time_fall,
+        'cell_rise': cell_rise,
+        'cell_fall': cell_fall,
+    }
+
+
+class FFSetupHoldResult:
+    """
+    Bundle setup/hold times and corresponding delays for single-edge triggered flip-flops.
+    This values are valid for a certain input slew / output load combination.
+    """
+
+    def __init__(self):
+        self.dependent_setup_time_rise = 0
+        "Setup time for a rising data signal."
+        self.dependent_setup_time_fall = 0
+        "Setup time for a falling data signal."
+        self.dependent_setup_delay_rise = 0
+        "Data output delay for a rising data signal when the setup time is `dependent_setup_time_rise`."
+        self.dependent_setup_delay_fall = 0
+        "Data output delay for a falling data signal when the setup time is `dependent_setup_time_fall`."
+
+        self.dependent_hold_time_rise = 0
+        "Hold time for a rising data signal."
+        self.dependent_hold_time_fall = 0
+        "Hold time for a falling data signal."
+        self.dependent_hold_delay_rise = 0
+        "Data output delay for a rising data signal when the hold time is `dependent_hold_time_rise`."
+        self.dependent_hold_delay_fall = 0
+        "Data output delay for a falling data signal when the hold time is `dependent_hold_time_fall`."
+
+
+def measure_flip_flop_setup_hold(
+        cell_conf: CellConfig,
+        data_in_pin: str,
+        data_out_pin: str,
+        clock_pin: str,
+        output_load_capacitances: Dict[str, float],
+        data_rise_time: float,
+        data_fall_time: float,
+        clock_transition_time: float,
+        static_input_voltages: Dict[str, float] = None
+) -> FFSetupHoldResult:
     """
     Measure constraints (setup, hold) of a flip-flop.
     :param cell_conf:
-    :return:
+    :return: Returns a `FFSetupHoldResult` object that bundles the results.
     """
     cfg = cell_conf.global_conf
 
-    # TODO: Put cell ports into cell_conf.
-    print("Read:", cell_conf.spice_netlist_file)
-    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
-    print("Ports: ", ports)
-
-    # TODO: No hardcoded signals.
-    data_in = 'D'
-    clock = 'CLK'
-    data_out = 'Q'
-    ground = cell_conf.ground_net
-    supply = cell_conf.supply_net
-
-    # TODO: pass as parameter
-    input_rise_time = 0.010e-9
-    input_fall_time = 0.010e-9
-
-    # TODO: pass as parameter
-    output_load_capacitances = {data_out: 0.06e-12}
-    logger.info(f"Output load capacitance: {output_load_capacitances} [F]")
-
     # TODO: find appropriate simulation_duration_hint
     simulation_duration_hint = 2e-9
+    logger.debug(f"simulation_duration_hint = {simulation_duration_hint}")
+
+    clock_rise_time = clock_transition_time
+    clock_fall_time = clock_transition_time
+
+    # TODO: Put cell ports into cell_conf.
+    logger.debug(f"Read: {cell_conf.spice_netlist_file}")
+    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
+    logger.debug(f"Ports: {ports}")
+
+    logger.info(f"Output load capacitance: {output_load_capacitances} [F]")
 
     # SPICE include files.
     includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
@@ -857,18 +965,21 @@ def characterize_flip_flop(
             result = get_clock_to_output_delay(
                 cell_conf=cell_conf,
                 cell_ports=ports,
-                clock_input=clock,
-                data_in=data_in,
-                data_out=data_out,
+                clock_input=clock_pin,
+                data_in=data_in_pin,
+                data_out=data_out_pin,
                 setup_time=setup_time,
                 hold_time=hold_time,
                 rising_clock_edge=rising_clock_edge,
                 rising_data_edge=rising_data_edge,
-                input_rise_time=input_rise_time,
-                input_fall_time=input_fall_time,
+                input_rise_time=data_rise_time,
+                input_fall_time=data_fall_time,
+                clock_rise_time=clock_rise_time,
+                clock_fall_time=clock_fall_time,
                 output_load_capacitances=output_load_capacitances,
                 clock_cycle_hint=simulation_duration_hint,
                 setup_statements=includes,
+                input_voltages=static_input_voltages,
             )
             cache[cache_tag] = result
         else:
@@ -882,8 +993,8 @@ def characterize_flip_flop(
         """
 
         # Find a estimate start value for setup and hold times.
-        setup_time_guess = input_rise_time
-        hold_time_guess = input_fall_time
+        setup_time_guess = data_rise_time
+        hold_time_guess = data_fall_time
 
         setup_time = setup_time_guess
         hold_time = hold_time_guess
@@ -916,19 +1027,20 @@ def characterize_flip_flop(
         # setup/hold times are devided by 2 because the previous values actually lead to a delay that is close enough.
         return delay, (setup_time / 2, hold_time / 2)
 
+    # Find the minimum data delays.
+    # They are used to determine the target data delays when finding
+    # setup and hold times.
     min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge=True)
     min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge=False)
 
-    print(f"min_rise_delay = {min_rise_delay}")
-    print(f"min_fall_delay = {min_fall_delay}")
+    logger.debug(f"min_rise_delay = {min_rise_delay}")
+    logger.debug(f"min_fall_delay = {min_fall_delay}")
 
-    # Define how much delay increase is tolerated.
-    # Larger values lead to smaller setup/hold window but to increased delay.
-    roll_off_factor = 0.01
+    logger.debug(f"roll_off_factor = {cfg.roll_off_factor}")
 
     # Define flip flop failure: FF fails if delay is larger than max_accepted_{rise,fall}_delay
-    max_rise_delay = min_rise_delay * (1 + roll_off_factor)
-    max_fall_delay = min_fall_delay * (1 + roll_off_factor)
+    max_rise_delay = min_rise_delay * (1 + cfg.roll_off_factor)
+    max_fall_delay = min_fall_delay * (1 + cfg.roll_off_factor)
 
     def find_min_setup(rising_data_edge: bool,
                        hold_time: float) -> Tuple[float, float]:
@@ -959,7 +1071,7 @@ def characterize_flip_flop(
             return delay - max_delay
 
         # Determine min and max setup time for binary search.
-        shortest = -hold_time + input_rise_time + input_fall_time
+        shortest = -hold_time + data_rise_time + data_fall_time
         longest = setup_guess
         a = f(shortest)
         b = f(longest)
@@ -976,7 +1088,7 @@ def characterize_flip_flop(
         # Check if we really found the root of `f`.
         print(delay)
         assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal setup time." \
-                                                         " Try to decrease the simulation time step."
+                                                           " Try to decrease the simulation time step."
 
         return min_setup_time_indep, f(min_setup_time_indep) + max_delay
 
@@ -1006,7 +1118,7 @@ def characterize_flip_flop(
             return delay - max_delay
 
         # Determine min and max hold time for binary search.
-        shortest = -setup_time + input_rise_time + input_fall_time
+        shortest = -setup_time + data_rise_time + data_fall_time
         longest = hold_guess
         a = f(shortest)
         b = f(longest)
@@ -1023,33 +1135,43 @@ def characterize_flip_flop(
         # Check if we really found the root of `f`.
         print(delay)
         assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal hold time." \
-                                                         " Try to decrease the simulation time step."
+                                                           " Try to decrease the simulation time step."
 
         return min_hold_time_indep, f(min_hold_time_indep) + max_delay
 
-    print("Measure unconditional minimal setup time.")
+    logger.debug("Measure unconditional minimal setup time.")
+    """
+    The unconditional minimal setup time is the minimal setup time that can be achieved
+    when the hold time is infinitely long, i.e. when the input data signal remains
+    stable forever after the clock edge.
+    """
     hold_time_guess = max(hold_guess_rise, hold_guess_fall) * 4
     min_setup_time_uncond_rise, min_setup_delay_rise = find_min_setup(rising_data_edge=True,
                                                                       hold_time=hold_time_guess)
     min_setup_time_uncond_fall, min_setup_delay_fall = find_min_setup(rising_data_edge=False,
                                                                       hold_time=hold_time_guess)
 
-    print(f"unconditional min. setup time rise: {min_setup_time_uncond_rise}")
-    print(f"unconditional min. setup time fall: {min_setup_time_uncond_fall}")
-    print(f"max delays (rise): {min_setup_delay_rise}")
-    print(f"max delays (fall): {min_setup_delay_fall}")
+    logger.info(f"unconditional min. setup time rise: {min_setup_time_uncond_rise}")
+    logger.info(f"unconditional min. setup time fall: {min_setup_time_uncond_fall}")
+    logger.info(f"max delays (rise): {min_setup_delay_rise}")
+    logger.info(f"max delays (fall): {min_setup_delay_fall}")
 
-    print("Measure unconditional minimal hold time.")
-    setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 40
+    logger.debug("Measure unconditional minimal hold time.")
+    """
+    The unconditional minimal hold time is the minimal hold time that can be achieved
+    when the setup time is infinitely long, i.e. when the input data signal is already stable
+    since an infinite time before the clock edge.
+    """
+    setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 40  # TODO: How to choose the initial value?
     min_hold_time_uncond_rise, min_hold_delay_rise = find_min_hold(rising_data_edge=True,
                                                                    setup_time=setup_time_guess)
     min_hold_time_uncond_fall, min_hold_delay_fall = find_min_hold(rising_data_edge=False,
                                                                    setup_time=setup_time_guess)
 
-    print(f"unconditional min. hold time rise: {min_hold_time_uncond_rise}")
-    print(f"unconditional min. hold time fall: {min_hold_time_uncond_fall}")
-    print(f"max delays (rise): {min_hold_delay_rise}")
-    print(f"max delays (fall): {min_hold_delay_fall}")
+    logger.info(f"unconditional min. hold time rise: {min_hold_time_uncond_rise}")
+    logger.info(f"unconditional min. hold time fall: {min_hold_time_uncond_fall}")
+    logger.info(f"max delays (rise): {min_hold_delay_rise}")
+    logger.info(f"max delays (fall): {min_hold_delay_fall}")
 
     # # Find dependent setup time.
     dependent_setup_time_rise, dependent_setup_delay_rise = \
@@ -1068,8 +1190,22 @@ def characterize_flip_flop(
         find_min_hold(rising_data_edge=False,
                       setup_time=min_setup_time_uncond_fall)
 
-    print("dep setup:", dependent_setup_time_rise, dependent_setup_time_fall)
-    print("dep setup delay:", dependent_setup_delay_rise, dependent_setup_delay_fall)
+    logger.info(f"dep. setup (rise, fall): {dependent_setup_time_rise}, {dependent_setup_time_fall}")
+    logger.info(f"dep. setup delay (rise, fall): {dependent_setup_delay_rise}, {dependent_setup_delay_fall}")
 
-    print("dep hold:", dependent_hold_time_rise, dependent_hold_time_fall)
-    print("dep hold delay:", dependent_hold_delay_rise, dependent_hold_delay_fall)
+    logger.info(f"dep. hold (rise, fall): {dependent_hold_time_rise}, {dependent_hold_time_fall}")
+    logger.info(f"dep. hold delay (rise, fall): {dependent_hold_delay_rise}, {dependent_hold_delay_fall}")
+
+    result = FFSetupHoldResult()
+
+    result.dependent_setup_time_rise = dependent_setup_time_rise
+    result.dependent_setup_time_fall = dependent_setup_time_fall
+    result.dependent_setup_delay_rise = dependent_setup_delay_rise
+    result.dependent_setup_delay_fall = dependent_setup_delay_fall
+
+    result.dependent_hold_time_rise = dependent_hold_time_rise
+    result.dependent_hold_time_fall = dependent_hold_time_fall
+    result.dependent_hold_delay_rise = dependent_hold_delay_rise
+    result.dependent_hold_delay_fall = dependent_hold_delay_fall
+
+    return result

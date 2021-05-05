@@ -132,6 +132,21 @@ class CharacterizationConfig:
         self.debug_plots: bool = False
         "Enable more verbose debugging output such as plots of the simulations."
 
+        self.roll_off_factor: float = 0.01
+        """
+        For characterization of setup/hold times. Must be a positive and non-zero value.
+        
+        Larger values lead to smaller setup/hold window but to increased delay.
+        
+        Define how much data delay increase is tolerated.
+        The minimal delay at a sequential cell is achieved when the input signal remains
+        stable in a very wide window around the clock edge. This enlarges
+        the required setup and hold time. To make a trade-off, a degradation of the 
+        delay time is accepted by the `roll_off_factor`. If the minimal delay is `d`,
+        then a delay of `d*(1+roll_off_factor)` is targeted for the characterization
+        of setup and hold times.
+        """
+
 
 #
 # # TODO: Add type hints for Python 3.6.

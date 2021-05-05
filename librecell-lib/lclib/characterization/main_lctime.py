@@ -133,8 +133,16 @@ def main():
                         help='Specify differential inputs as "NonInverting,Inverting" tuples.'
                              'The placeholder "%" can be used like "%_P,%_N" or "%,%_Diff", ...')
 
+    parser.add_argument('--time-step', default=10e-12,
+                        metavar='TIME_STEP',
+                        type=float,
+                        help='Specify the simulation time-step in seconds. Default is 10e-12.')
+
     parser.add_argument('--debug', action='store_true',
-                        help='Enable debug mode (more verbose logging and plotting waveforms).')
+                        help='Enable debug mode (more verbose logging).')
+
+    parser.add_argument('--debug-plots', action='store_true',
+                        help='Create debug plots of simulation waveforms.')
 
     # Parse arguments
     args = parser.parse_args()
@@ -315,8 +323,13 @@ def main():
     logger.info(f"Input slew times [ns]: {input_transition_times * 1e9}")
 
     # TODO: Make time resolution parametrizable.
-    time_resolution_seconds = 50e-12
+    time_resolution_seconds = float(args.time_step)
     logger.info("Time resolution = {}s".format(time_resolution_seconds))
+    if time_resolution_seconds <= 0:
+        logger.error('Time steop must be larger than zero.')
+        exit(1)
+    if time_resolution_seconds > 1e-9:
+        logger.warning(f"Timestep is larger than 1ns: {time_resolution_seconds}s")
 
     # Setup configuration struct.
     conf = CharacterizationConfig()
@@ -328,6 +341,7 @@ def main():
     conf.temperature = temperature
     conf.workingdir = workingdir
     conf.debug = args.debug
+    conf.debug_plots = args.debug_plots
 
     # Characterize all cells in the list.
     def characterize_cell(cell_name: str) -> Group:
@@ -724,7 +738,20 @@ def main():
         elif isinstance(cell_type, SingleEdgeDFF):
             logger.info("Characterize single-edge triggered flip-flop.")
 
-            result = characterize_flip_flop(cell_conf)
+            result = characterize_flip_flop_setup_hold(
+                cell_conf=cell_conf,
+                data_in_pin='D',
+                data_out_pin='Q',
+                clock_pin='CLK',
+                clock_transition_time=0.001e-12,  # TODO
+
+                total_output_net_capacitance=output_capacitances,
+                input_net_transition=input_transition_times,
+
+                static_input_voltages=None
+            )
+
+            print(result)
 
         elif isinstance(cell_type, Latch):
             logger.info("Characterize latch.")
