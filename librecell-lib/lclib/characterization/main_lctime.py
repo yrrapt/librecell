@@ -372,6 +372,10 @@ def main():
         transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name, force_lowercase=True)
         io_pins = net_util.get_io_pins(cell_pins)
 
+        # Get pin ordering of spice circuit.
+        spice_ports = get_subcircuit_ports(netlist_file, cell_name)
+        logger.debug(f"Spice subcircuit ports: {spice_ports}")
+
         if len(transistors_abstract) == 0:
             msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
             logger.error(msg)
@@ -647,6 +651,7 @@ def main():
         cell_conf.supply_net = vdd_pin
         cell_conf.workingdir = cell_workingdir
         cell_conf.spice_netlist_file = netlist_file_table[cell_name]
+        cell_conf.spice_ports = spice_ports
 
         # Measure input pin capacitances.
         logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
@@ -738,20 +743,81 @@ def main():
         elif isinstance(cell_type, SingleEdgeDFF):
             logger.info("Characterize single-edge triggered flip-flop.")
 
+            data_in_pin = 'D'
+            data_out_pin = 'Q'
+            clock_pin = 'CLK'
+
+            clock_edge_polarity = True  # TODO: Move to cell_type.
+
+            # min_clock_pulse = find_minimum_pulse_width(
+            #     cell_config=cell_conf,
+            #     clock_input=clock_pin,
+            #     data_in=data_in_pin,
+            #     data_out=data_out_pin,
+            #     setup_time=100e-12,
+            #     clock_pulse_polarity=True,
+            #     rising_data_edge=False,
+            #     clock_rise_time=0.001e-12,  # TODO: Something fails when 0.
+            #     clock_fall_time=0.001e-12,
+            #     output_load_capacitances={'Q': 0},
+            #     clock_pulse_width_guess=1e-9,
+            #     max_simulation_time=1e-7,
+            #     static_input_voltages=None,
+            # )
+            # logger.info(f'min_clock_pulse = {min_clock_pulse}')
+            # exit()
+
             result = characterize_flip_flop_setup_hold(
                 cell_conf=cell_conf,
-                data_in_pin='D',
-                data_out_pin='Q',
-                clock_pin='CLK',
+                data_in_pin=data_in_pin,
+                data_out_pin=data_out_pin,
+                clock_pin=clock_pin,
+                clock_edge_polarity=clock_edge_polarity,
                 clock_transition_time=0.001e-12,  # TODO
 
                 total_output_net_capacitance=output_capacitances,
                 input_net_transition=input_transition_times,
 
-                static_input_voltages=None
+                static_input_voltages=None  # TODO: Disable preset/clear/scan_en.
             )
 
-            print(result)
+            # Get the table indices.
+            # TODO: get correct index/variable mapping from liberty file.
+            index_1 = result['total_output_net_capacitance'] * capacitance_unit_scale_factor
+            index_2 = result['input_net_transition'] * time_unit_scale_factor
+            # TODO: remember all necessary templates and create template tables.
+            table_template_name = 'delay_template_{}x{}'.format(len(index_1), len(index_2))
+
+            input_pin_group = new_cell_group.get_group('pin', data_in_pin)
+
+            clock_edge = 'rising' if clock_edge_polarity else 'falling'
+
+            for contraint_type in ['hold', 'setup']:
+                hold_rise_constraint = Group('rise_constraint', args=[table_template_name])
+                hold_rise_constraint.set_array('index_1', index_1)
+                hold_rise_constraint.set_array('index_2', index_2)
+                hold_rise_constraint.set_array(
+                    'values',
+                    result[f'{contraint_type}_rise_constraint'] * time_unit_scale_factor
+                )
+
+                hold_fall_constraint = Group('fall_constraint', args=[table_template_name])
+                hold_fall_constraint.set_array('index_1', index_1)
+                hold_fall_constraint.set_array('index_2', index_2)
+                hold_fall_constraint.set_array(
+                    'values',
+                    result[f'{contraint_type}_fall_constraint'] * time_unit_scale_factor
+                )
+
+                timing_group = Group(
+                    'timing',
+                    attributes={
+                        'timing_type': [f'{contraint_type}_{clock_edge}'],
+                        'related_pin': [EscapedString(clock_pin)]
+                    },
+                    groups=[hold_rise_constraint, hold_fall_constraint]
+                )
+                input_pin_group.groups.append(timing_group)
 
         elif isinstance(cell_type, Latch):
             logger.info("Characterize latch.")

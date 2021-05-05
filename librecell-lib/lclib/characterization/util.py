@@ -74,6 +74,11 @@ class CellConfig:
         Path to SPICE netlist containing the subcircuit of the cell.
         """
 
+        self.spice_ports: List[str] = None
+        """
+        Ordering of pins of the spice subcircuit that describes this cell.
+        """
+
         self.complementary_pins: Dict[str, str] = dict()
         """Mapping of non-inverting pin name to its complementary pin name of differential pairs.
         Dict[non inverting pin, inverting pin]."""
