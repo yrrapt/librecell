@@ -168,6 +168,9 @@ def store_layout_to_magic_file(tech_name: str,
     port_counter = itertools.count(1)
     for pin_name, pins in pin_geometries.items():
         for layer_name, pin_shapes in pins:
+            # Find the new layer name.
+            label_layer = layer_name + '_label'
+            output_layer = output_map[label_layer]
             pin_region = db.Region()
             pin_region.insert(pin_shapes)
             # Convert pin shape into rectangles.
@@ -178,7 +181,7 @@ def store_layout_to_magic_file(tech_name: str,
 
                 for rect_str in rectangles_str:
                     text_orientation = 0  # 0: center
-                    mag_labels.append("rlabel {} {} {} {}".format(layer_name,
+                    mag_labels.append("rlabel {} {} {} {}".format(output_layer,
                                                                   rect_str,
                                                                   text_orientation,
                                                                   pin_name))
