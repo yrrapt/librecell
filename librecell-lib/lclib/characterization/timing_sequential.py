@@ -476,8 +476,8 @@ def get_clock_to_output_delay(
         input_fall_time: float,
         clock_rise_time: float,
         clock_fall_time: float,
+        clock_cycle_hint: float,
         output_load_capacitances: Dict[str, float] = None,
-        clock_cycle_hint: float = 200.0e-12,
         setup_statements: List[str] = None,
         input_voltages: Dict[str, float] = None,
 ) -> float:
@@ -799,7 +799,7 @@ def characterize_flip_flop_setup_hold(
     :return:
     """
 
-    def f(input_transition_time, output_cap):
+    def f(input_transition_time: float, output_cap: float):
         result = measure_flip_flop_setup_hold(
             cell_conf=cell_conf,
             data_in_pin=data_in_pin,
@@ -826,7 +826,7 @@ def characterize_flip_flop_setup_hold(
             result.dependent_hold_delay_fall,
         )
 
-    f_vec = np.vectorize(f)
+    f_vec = np.vectorize(f, cache=True)
 
     xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
 
@@ -896,8 +896,8 @@ def measure_flip_flop_setup_hold(
     cfg = cell_conf.global_conf
 
     # TODO: find appropriate simulation_duration_hint
-    simulation_duration_hint = 2e-9
-    logger.debug(f"simulation_duration_hint = {simulation_duration_hint}")
+    clock_cycle_hint = 1e-9
+    logger.debug(f"simulation_duration_hint = {clock_cycle_hint}")
 
     clock_rise_time = clock_transition_time
     clock_fall_time = clock_transition_time
@@ -947,7 +947,7 @@ def measure_flip_flop_setup_hold(
                 clock_rise_time=clock_rise_time,
                 clock_fall_time=clock_fall_time,
                 output_load_capacitances=output_load_capacitances,
-                clock_cycle_hint=simulation_duration_hint,
+                clock_cycle_hint=clock_cycle_hint,
                 setup_statements=includes,
                 input_voltages=static_input_voltages,
             )
@@ -956,21 +956,24 @@ def measure_flip_flop_setup_hold(
             logger.debug('Cache hit.')
         return result
 
-    def find_min_data_delay(rising_data_edge: bool) -> Tuple[float, Tuple[float, float]]:
+    def find_min_data_delay(rising_data_edge: bool, tolerance: float = 1e-3) -> Tuple[float, Tuple[float, float]]:
         """ Find minimum clock->data delay (with large setup/hold window).
 
         Procedure is as follows: Setup and hold time are increased until the data delay reaches a stable value.
+
+        The tolerance should be chosen smaller than the roll-off factor.
+        As a rule of thumb chose the tolerance as 0.1 * roll_off_factor
         """
 
-        # Find a estimate start value for setup and hold times.
+        # TODO: Find a estimate start value for setup and hold times.
         setup_time_guess = data_rise_time
         hold_time_guess = data_fall_time
 
         setup_time = setup_time_guess
         hold_time = hold_time_guess
 
-        assert setup_time != 0  # Does not terminate otherwise.
-        assert hold_time != 0  # Does not terminate otherwise.
+        assert setup_time != 0, "Setup time guess cannot be 0."  # Does not terminate otherwise.
+        assert hold_time != 0, "Hold time guess cannot be 0."  # Does not terminate otherwise.
 
         prev_delay = None
         delay = None
@@ -979,11 +982,12 @@ def measure_flip_flop_setup_hold(
             delay = delay_f(setup_time, hold_time,
                             rising_clock_edge=clock_edge_polarity,
                             rising_data_edge=rising_data_edge)
+            print(delay)
 
             if prev_delay is not None and delay != float('Inf'):
                 diff = abs(delay - prev_delay)
                 fraction = diff / delay
-                if fraction < 0.001:
+                if fraction < tolerance:
                     # Close enough.
                     break
             setup_time = setup_time * 2
@@ -991,26 +995,44 @@ def measure_flip_flop_setup_hold(
 
             prev_delay = delay
 
-        logger.info(f"Minimum clock to data delay: {delay}. (Iterations = {next(ctr)})")
+        logger.info(f"Minimum clock to data delay: {delay}. "
+                    f"(Iterations = {next(ctr)}, "
+                    f"setup_time = {setup_time}, hold_time = {hold_time})")
 
         # Return the minimum delay and setup/hold times that lead to it.
-        # setup/hold times are devided by 2 because the previous values actually lead to a delay that is close enough.
+        # setup/hold times are divided by 2 because the previous values actually lead to a delay that is close enough.
         return delay, (setup_time / 2, hold_time / 2)
 
     # Find the minimum data delays.
     # They are used to determine the target data delays when finding
     # setup and hold times.
+    logger.info("Find minimal propagation delays.")
     min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge=True)
     min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge=False)
 
     logger.debug(f"min_rise_delay = {min_rise_delay}")
     logger.debug(f"min_fall_delay = {min_fall_delay}")
 
-    logger.debug(f"roll_off_factor = {cfg.roll_off_factor}")
+    logger.info(f"roll_off_factor = {cfg.roll_off_factor}")
 
     # Define flip flop failure: FF fails if delay is larger than max_accepted_{rise,fall}_delay
     max_rise_delay = min_rise_delay * (1 + cfg.roll_off_factor)
     max_fall_delay = min_fall_delay * (1 + cfg.roll_off_factor)
+
+    # Compute the closest delay from rising to falling data edge based on the slew.
+    dr = cfg.trip_points.slew_upper_threshold_rise - cfg.trip_points.slew_lower_threshold_rise
+    edge_duration_rise = data_rise_time / dr  # Time of edge going fully from 0 to 1.
+    df = cfg.trip_points.slew_upper_threshold_fall - cfg.trip_points.slew_lower_threshold_fall
+    edge_duration_fall = data_fall_time / df  # Time of edge going fully from 1 to 0.
+
+    min_data_edge_separation = edge_duration_rise * (1 - cfg.trip_points.input_threshold_rise) + \
+                     edge_duration_fall * (1 - cfg.trip_points.input_threshold_fall)
+    min_data_edge_separation *= 1.01
+    print(f"dr = {dr}")
+    print(f"df = {df}")
+    print(f"edge_duration_rise = {edge_duration_rise}")
+    print(f"min_separation = {min_data_edge_separation}")
+    # exit()
 
     def find_min_setup(rising_data_edge: bool,
                        hold_time: float) -> Tuple[float, float]:
@@ -1024,12 +1046,12 @@ def measure_flip_flop_setup_hold(
         max_delay = max_rise_delay if rising_data_edge else max_fall_delay
         setup_guess = setup_guess_rise if rising_data_edge else setup_guess_fall
 
-        logger.info(f"Find min. setup time. Hold time = {hold_time}")
+        logger.info(f"Find min. setup time. Hold time = {hold_time}. rising_data_edge = {rising_data_edge}")
 
         def f(setup_time: float) -> float:
             """
-            Optimization function.
-            Find `setup_time` such that the delay equals the maximum allowed delay.
+            Optimization function objective.
+            For finding `setup_time` such that the delay equals the maximum allowed delay.
             :param setup_time:
             :return:
             """
@@ -1041,26 +1063,47 @@ def measure_flip_flop_setup_hold(
             return delay - max_delay
 
         # Determine min and max setup time for binary search.
-        shortest = -hold_time + data_rise_time + data_fall_time
-        longest = setup_guess
+        # shortest = -hold_time + data_rise_time + data_fall_time
+        shortest = -hold_time + min_data_edge_separation
+        longest = max(setup_guess_rise, shortest)
+        assert shortest <= longest
+        print(shortest, longest)
         a = f(shortest)
         b = f(longest)
         assert a > 0
-        # Make sure f(longest) is larger than zero.
+        # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
         while not b < 0:
             longest = longest * 2
             b = f(longest)
 
-        xtol = 1e-20
-        min_setup_time_indep = optimize.brentq(f, shortest, longest, xtol=xtol)
-        assert isinstance(min_setup_time_indep, float)
-        delay = f(min_setup_time_indep)
-        # Check if we really found the root of `f`.
-        print(delay)
-        assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal setup time." \
-                                                           " Try to decrease the simulation time step."
+        assert b < 0
+        print(shortest, longest)
 
-        return min_setup_time_indep, f(min_setup_time_indep) + max_delay
+        # if cfg.debug_plots:
+        # Plot data in debug mode.
+        # logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
+        # import matplotlib
+        # matplotlib.use('Agg')
+        # import matplotlib.pyplot as plt
+        #
+        # t_su = np.linspace(shortest, longest, num=100)
+        # err = np.vectorize(f)(t_su)
+        # plt.plot(t_su, err)
+        # plt.show()
+
+        xtol = 1e-20
+        min_setup_time = optimize.bisect(f, shortest, longest, xtol=xtol)
+        assert isinstance(min_setup_time, float)
+        if math.isclose(min_setup_time, shortest) or math.isclose(min_setup_time, longest):
+            logger.warning("Result of binary search is on bounds. Optimal setup-time not found.")
+
+        delay_err = f(min_setup_time)
+        # Check if we really found the root of `f`.
+        logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
+        assert np.allclose(0, delay_err, atol=xtol * 1000000), "Failed to find solution for minimal setup time." \
+                                                               " Try to decrease the simulation time step."
+
+        return min_setup_time, delay_err + max_delay
 
     def find_min_hold(rising_data_edge: bool,
                       setup_time: float) -> Tuple[float, float]:
@@ -1073,6 +1116,8 @@ def measure_flip_flop_setup_hold(
         """
         max_delay = max_rise_delay if rising_data_edge else max_fall_delay
         hold_guess = hold_guess_rise if rising_data_edge else hold_guess_fall
+
+        logger.info(f"Find min. hold time. Setup time = {setup_time}. rising_data_edge = {rising_data_edge}")
 
         def f(hold_time: float) -> float:
             """
@@ -1088,22 +1133,25 @@ def measure_flip_flop_setup_hold(
             return delay - max_delay
 
         # Determine min and max hold time for binary search.
-        shortest = -setup_time + data_rise_time + data_fall_time
+        # shortest = -setup_time + data_rise_time + data_fall_time
+        shortest = -setup_time + min_data_edge_separation
         longest = hold_guess
         a = f(shortest)
         b = f(longest)
         assert a > 0
-        # Make sure f(longest) is larger than zero.
+        # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
         while not b < 0:
             longest = longest * 2
             b = f(longest)
 
+        assert b < 0
+
         xtol = 1e-20
-        min_hold_time_indep = optimize.brentq(f, shortest, longest, xtol=xtol)
+        min_hold_time_indep = optimize.bisect(f, shortest, longest, xtol=xtol)
         assert isinstance(min_hold_time_indep, float)
         delay = f(min_hold_time_indep)
         # Check if we really found the root of `f`.
-        print(delay)
+        logger.info(f"delay error = {delay}")
         assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal hold time." \
                                                            " Try to decrease the simulation time step."
 
@@ -1143,7 +1191,7 @@ def measure_flip_flop_setup_hold(
     logger.info(f"max delays (rise): {min_hold_delay_rise}")
     logger.info(f"max delays (fall): {min_hold_delay_fall}")
 
-    # # Find dependent setup time.
+    # Find dependent setup time.
     dependent_setup_time_rise, dependent_setup_delay_rise = \
         find_min_setup(rising_data_edge=True,
                        hold_time=min_hold_time_uncond_rise)

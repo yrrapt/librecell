@@ -793,18 +793,18 @@ def main():
             clock_edge = 'rising' if clock_edge_polarity else 'falling'
 
             for contraint_type in ['hold', 'setup']:
-                hold_rise_constraint = Group('rise_constraint', args=[table_template_name])
-                hold_rise_constraint.set_array('index_1', index_1)
-                hold_rise_constraint.set_array('index_2', index_2)
-                hold_rise_constraint.set_array(
+                rise_constraint = Group('rise_constraint', args=[table_template_name])
+                rise_constraint.set_array('index_1', index_1)
+                rise_constraint.set_array('index_2', index_2)
+                rise_constraint.set_array(
                     'values',
                     result[f'{contraint_type}_rise_constraint'] * time_unit_scale_factor
                 )
 
-                hold_fall_constraint = Group('fall_constraint', args=[table_template_name])
-                hold_fall_constraint.set_array('index_1', index_1)
-                hold_fall_constraint.set_array('index_2', index_2)
-                hold_fall_constraint.set_array(
+                fall_constraint = Group('fall_constraint', args=[table_template_name])
+                fall_constraint.set_array('index_1', index_1)
+                fall_constraint.set_array('index_2', index_2)
+                fall_constraint.set_array(
                     'values',
                     result[f'{contraint_type}_fall_constraint'] * time_unit_scale_factor
                 )
@@ -815,7 +815,7 @@ def main():
                         'timing_type': [f'{contraint_type}_{clock_edge}'],
                         'related_pin': [EscapedString(clock_pin)]
                     },
-                    groups=[hold_rise_constraint, hold_fall_constraint]
+                    groups=[rise_constraint, fall_constraint]
                 )
                 input_pin_group.groups.append(timing_group)
 

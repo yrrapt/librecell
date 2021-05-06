@@ -318,7 +318,7 @@ def characterize_comb_cell(
                 reduction_function(np.array(rise_transition_durations)),
                 reduction_function(np.array(fall_transition_durations)))
 
-    f_vec = np.vectorize(f)
+    f_vec = np.vectorize(f, cache=True)
 
     xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
 
