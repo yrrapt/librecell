@@ -209,6 +209,27 @@ def test_step_wave():
     assert isclose(falling_edge(0.2), 0)
 
 
+def test_step_wave_addition():
+    # Add two step waves where the transitions are overlapping
+    from math import isclose
+    rising_edge = StepWave(start_time=0, polarity=True, transition_time=1,
+                           rise_threshold=0.8, fall_threshold=0.2)
+
+    falling_edge = StepWave(start_time=0.5, polarity=False, transition_time=1,
+                            rise_threshold=0.8, fall_threshold=0.2)
+
+    pulse = rising_edge + (falling_edge - 1)
+
+    # import matplotlib.pyplot as plt
+    # x = np.linspace(-1, 2, 1000)
+    # y = pulse(x)
+    # plt.plot(x, y)
+    # plt.show()
+
+    assert isclose(pulse(0), 0.5)
+    assert isclose(pulse(1), 0)
+
+
 class PulseWave(PieceWiseLinear):
 
     # TODO: also use slew thresholds. Maybe pass TripPoint object to constructor.
@@ -236,30 +257,48 @@ class PulseWave(PieceWiseLinear):
         assert duration >= 0
 
         if polarity:
-            start1 = start_time - rise_threshold * rise_time
-            end1 = start_time + ((1 - rise_threshold) * rise_time)
-            start2 = start_time + duration - (1 - fall_threshold) * fall_time
-            end2 = start_time + duration + fall_threshold * fall_time
+            rising_edge = StepWave(start_time=start_time, polarity=True, transition_time=rise_time,
+                                   rise_threshold=rise_threshold, fall_threshold=fall_threshold)
+
+            falling_edge = StepWave(start_time=start_time + duration, polarity=False, transition_time=fall_time,
+                                    rise_threshold=rise_threshold, fall_threshold=fall_threshold)
+
+            pulse = rising_edge + (falling_edge - 1)
+            # start1 = start_time - rise_threshold * rise_time
+            # end1 = start_time + ((1 - rise_threshold) * rise_time)
+            # start2 = start_time + duration - (1 - fall_threshold) * fall_time
+            # end2 = start_time + duration + fall_threshold * fall_time
         else:
-            start1 = start_time - (1 - fall_threshold) * fall_time
-            end1 = start_time + fall_threshold * fall_time
-            start2 = start_time + duration - rise_threshold * rise_time
-            end2 = start_time + duration + (1 - rise_threshold) * rise_time
 
-        assert start1 <= end1
-        assert start2 <= end2
+            falling_edge = StepWave(start_time=start_time, polarity=False, transition_time=fall_time,
+                                    rise_threshold=rise_threshold, fall_threshold=fall_threshold)
 
-        assert start1 <= end1 <= start2 <= end2
+            rising_edge = StepWave(start_time=start_time + duration, polarity=True, transition_time=rise_time,
+                                   rise_threshold=rise_threshold, fall_threshold=fall_threshold)
 
-        if polarity:
-            y = [0, 1, 1, 0]
-        else:
-            y = [1, 0, 0, 1]
+            pulse = falling_edge + rising_edge
 
-        super().__init__(
-            x=[start1, end1, start2, end2],
-            y=y
-        )
+            # start1 = start_time - (1 - fall_threshold) * fall_time
+            # end1 = start_time + fall_threshold * fall_time
+            # start2 = start_time + duration - rise_threshold * rise_time
+            # end2 = start_time + duration + (1 - rise_threshold) * rise_time
+
+        # assert start1 <= end1
+        # assert start2 <= end2
+        #
+        # assert start1 <= end1 <= start2 <= end2
+
+        # if polarity:
+        #     y = [0, 1, 1, 0]
+        # else:
+        #     y = [1, 0, 0, 1]
+
+        # super().__init__(
+        #     x=[start1, end1, start2, end2],
+        #     y=y
+        # )
+
+        super().__init__(x=pulse.x, y=pulse.y)
 
 
 def test_piece_wise_linear():

@@ -1034,6 +1034,10 @@ def measure_flip_flop_setup_hold(
     print(f"min_separation = {min_data_edge_separation}")
     # exit()
 
+    # Tolerances for bisection root finding algorithm.
+    xtol = 1e-20
+    rtol = 1e-6
+
     def find_min_setup(rising_data_edge: bool,
                        hold_time: float) -> Tuple[float, float]:
         """
@@ -1064,7 +1068,7 @@ def measure_flip_flop_setup_hold(
 
         # Determine min and max setup time for binary search.
         # shortest = -hold_time + data_rise_time + data_fall_time
-        shortest = -hold_time + min_data_edge_separation
+        shortest = -hold_time
         longest = max(setup_guess_rise, shortest)
         assert shortest <= longest
         print(shortest, longest)
@@ -1091,8 +1095,7 @@ def measure_flip_flop_setup_hold(
         # plt.plot(t_su, err)
         # plt.show()
 
-        xtol = 1e-20
-        min_setup_time = optimize.bisect(f, shortest, longest, xtol=xtol)
+        min_setup_time = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
         assert isinstance(min_setup_time, float)
         if math.isclose(min_setup_time, shortest) or math.isclose(min_setup_time, longest):
             logger.warning("Result of binary search is on bounds. Optimal setup-time not found.")
@@ -1100,7 +1103,7 @@ def measure_flip_flop_setup_hold(
         delay_err = f(min_setup_time)
         # Check if we really found the root of `f`.
         logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
-        assert np.allclose(0, delay_err, atol=xtol * 1000000), "Failed to find solution for minimal setup time." \
+        assert np.allclose(0, delay_err, atol=1e-12), "Failed to find solution for minimal setup time." \
                                                                " Try to decrease the simulation time step."
 
         return min_setup_time, delay_err + max_delay
@@ -1134,7 +1137,7 @@ def measure_flip_flop_setup_hold(
 
         # Determine min and max hold time for binary search.
         # shortest = -setup_time + data_rise_time + data_fall_time
-        shortest = -setup_time + min_data_edge_separation
+        shortest = -setup_time
         longest = hold_guess
         a = f(shortest)
         b = f(longest)
@@ -1146,13 +1149,12 @@ def measure_flip_flop_setup_hold(
 
         assert b < 0
 
-        xtol = 1e-20
-        min_hold_time_indep = optimize.bisect(f, shortest, longest, xtol=xtol)
+        min_hold_time_indep = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
         assert isinstance(min_hold_time_indep, float)
         delay = f(min_hold_time_indep)
         # Check if we really found the root of `f`.
         logger.info(f"delay error = {delay}")
-        assert np.allclose(0, delay, atol=xtol * 1000000), "Failed to find solution for minimal hold time." \
+        assert np.allclose(0, delay, atol=1e-12), "Failed to find solution for minimal hold time." \
                                                            " Try to decrease the simulation time step."
 
         return min_hold_time_indep, f(min_hold_time_indep) + max_delay
