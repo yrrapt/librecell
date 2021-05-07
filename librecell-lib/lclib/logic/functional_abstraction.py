@@ -749,8 +749,8 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     #     print()
 
     # Collect all nets that belong to a memory cycle.
-    nets_of_memory_cycles = {n for c in cycles for n in c}
-    logger.debug(f"Nets of memory cycles: {nets_of_memory_cycles}")
+    nets_of_feedback_loops = {n for c in cycles for n in c}
+    logger.debug(f"Nets of feed-back loops: {nets_of_feedback_loops}")
 
     def derive_memory(memory_output_net: sympy.Symbol,
                       inputs: Set[sympy.Symbol],
@@ -763,11 +763,16 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         :return:
         """
         logger.info("Derive memory from output net: {}".format(memory_output_net))
+        # print("Derive memory from output net: {}".format(memory_output_net))
         memory_output_resolved = _resolve_intermediate_variables(formulas, inputs, memory_output_net)
+        # print(formulas)
+        # print('memory_output_resolved =', memory_output_resolved)
+
         logger.debug("Memory output net {}  = {}".format(memory_output_net, memory_output_resolved))
         d, dp, dn = boolean_derivatives(memory_output_resolved, memory_output_net)
         write_condition = ~dp
         logger.debug(f"write_condition = {write_condition}")
+        # print(f"write_condition = {write_condition}")
         oscillation_condition = dn
 
         debug = True
@@ -808,10 +813,11 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     # Derive memory for all cycles with each possible node as memory output.
     memory_output_nets = set()
     memory_by_output_net = dict()  # Cache memory loops for later usage.
+    nets_of_memory_loops = set()
     for loop_id, cycle in enumerate(cycles):
         # print('cycle = {}'.format(cycle))
         nodes_in_cycle = set(cycle)
-        _inputs = inputs | nets_of_memory_cycles - nodes_in_cycle
+        _inputs = inputs | nets_of_feedback_loops - nodes_in_cycle
         for node in cycle:
             memory = derive_memory(node, _inputs, formulas_high)
             memory.loop_id = loop_id
@@ -823,6 +829,7 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
                 # Store condition can be met -> this is a potential memory.
                 memory_output_nets.add(node)
                 memory_by_output_net[node] = memory
+                nets_of_memory_loops.update(cycle)
 
     logger.debug("Memory output nets: {}".format(memory_output_nets))
 
@@ -842,11 +849,11 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
 
             new_wavefront = set()
 
-            if out not in nets_of_memory_cycles:
+            if out not in nets_of_memory_loops:
                 logger.debug(f"Find formula for {out}.")
 
                 assert isinstance(out, boolalg.Boolean)
-                formula = _resolve_intermediate_variables(formulas_high, inputs | nets_of_memory_cycles, out)
+                formula = _resolve_intermediate_variables(formulas_high, inputs | nets_of_memory_loops, out)
                 output_formulas[out] = formula
 
                 # Find new wavefront.
@@ -855,11 +862,11 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
 
                 # Find inputs into formula that come from a memory.
                 new_atoms = atoms - output_formulas.keys() - latches.keys() - inputs
-                unknown_memory_nets = new_atoms & nets_of_memory_cycles
+                unknown_memory_nets = new_atoms & nets_of_memory_loops
                 logger.debug(f"Unknown inputs into {out} from memory: {unknown_memory_nets}")
             else:
                 # Resolve memory.
-                assert out in nets_of_memory_cycles
+                assert out in nets_of_memory_loops
 
                 # Output net of the memory loop.
                 memory_net = out
@@ -902,8 +909,8 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     if not latches:
         logger.info("No latches found.")
 
-    if len(cycles) > 0:
-        assert len(latches) > 0, "Found feedback loops but no latches were derived."
+    if len(cycles) > 0 and len(latches) == 0:
+        logger.warning("Found feedback loops but no latches were derived.")
     if len(latches):
         logger.info(f"Number of latches: {len(latches)}")
 
@@ -940,6 +947,19 @@ class NetlistGen:
             (out, self.gnd, (b, ChannelType.NMOS)),
         ]
 
+    def nor3(self, a, b, c, out):
+        # Create transistors of a NOR.
+        i1 = self.new_net("i1")
+        i2 = self.new_net("i2")
+        return [
+            (self.vdd, i1, (a, ChannelType.PMOS)),
+            (i1, i2, (b, ChannelType.PMOS)),
+            (i2, out, (c, ChannelType.PMOS)),
+            (out, self.gnd, (a, ChannelType.NMOS)),
+            (out, self.gnd, (b, ChannelType.NMOS)),
+            (out, self.gnd, (c, ChannelType.NMOS)),
+        ]
+
     def nand2(self, a, b, out):
         # Create transistors of a NAND.
         i = self.new_net("i")
@@ -950,13 +970,34 @@ class NetlistGen:
             (i, self.gnd, (b, ChannelType.NMOS)),
         ]
 
+    def nand3(self, a, b, c, out):
+        # Create transistors of a NAND.
+        i1 = self.new_net("i1")
+        i2 = self.new_net("i2")
+        return [
+            (self.vdd, out, (a, ChannelType.PMOS)),
+            (self.vdd, out, (b, ChannelType.PMOS)),
+            (self.vdd, out, (c, ChannelType.PMOS)),
+            (out, i1, (a, ChannelType.NMOS)),
+            (i1, i2, (c, ChannelType.NMOS)),
+            (i2, self.gnd, (b, ChannelType.NMOS)),
+        ]
+
     def and2(self, a, b, out):
         nand_out = self.new_net(prefix="nand_out")
         return self.nand2(a, b, nand_out) + self.inv(nand_out, out)
 
+    def and3(self, a, b, c, out):
+        nand_out = self.new_net(prefix="nand_out")
+        return self.nand3(a, b, c, nand_out) + self.inv(nand_out, out)
+
     def or2(self, a, b, out):
         nor_out = self.new_net(prefix="nor_out")
         return self.nor2(a, b, nor_out) + self.inv(nor_out, out)
+
+    def or3(self, a, b, c, out):
+        nor_out = self.new_net(prefix="nor_out")
+        return self.nor3(a, b, c, nor_out) + self.inv(nor_out, out)
 
     def mux2(self, in0, in1, sel, out):
         sel0 = self.new_net(prefix='sel0')
@@ -1120,6 +1161,31 @@ def test_analyze_circuit_graph_set_reset_nand():
 
     assert len(abstract.latches) == 1
     # TODO
+
+
+def test_analyze_circuit_graph_2w11():
+    # Gate with hysteresis.
+    # Output goes HIGH when two inputs are HIGH.
+    # Output goes LOW when both inputs are LOW. Otherwise output is hold.
+    g = nx.MultiGraph()
+    # Network of a LATCH.
+    gen = NetlistGen()
+    edges = gen.nand2("S", "Y2", "Y1") + gen.nand2("R", "Y1", "Y2")
+    edges += gen.nand2('ip1', 'ip2', 'S')
+    edges += gen.or2('ip1', 'ip2', 'R')
+    for e in edges:
+        g.add_edge(*e)
+
+    pins_of_interest = {'ip1', 'ip2', 'Y1'}
+    known_pins = {'vdd': True, 'gnd': False}
+    abstract = analyze_circuit_graph(g, pins_of_interest=pins_of_interest, constant_input_pins=known_pins)
+    print(abstract.latches)
+    assert len(abstract.latches) == 1
+
+    ip1, ip2, y1 = sympy.symbols('ip1 ip2 Y1')
+    latch = abstract.latches[y1]
+    assert isinstance(latch, Memory)
+    assert bool_equals(latch.write_condition, (ip1 & ip2) | (~ip1 & ~ip2))
 
 
 def test_analyze_circuit_graph_dff_pos():
