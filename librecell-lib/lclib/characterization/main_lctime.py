@@ -755,13 +755,13 @@ def main():
             #     data_in=data_in_pin,
             #     data_out=data_out_pin,
             #     setup_time=100e-12,
-            #     clock_pulse_polarity=True,
+            #     clock_pulse_polarity=False,
             #     rising_data_edge=False,
-            #     clock_rise_time=0.001e-12,  # TODO: Something fails when 0.
-            #     clock_fall_time=0.001e-12,
+            #     clock_rise_time=10e-12,  # TODO: Something fails when 0.
+            #     clock_fall_time=10e-12,
             #     output_load_capacitances={'Q': 0},
-            #     clock_pulse_width_guess=1e-9,
-            #     max_simulation_time=1e-7,
+            #     clock_pulse_width_guess=100e-12,
+            #     max_simulation_time=1e-8,
             #     static_input_voltages=None,
             # )
             # logger.info(f'min_clock_pulse = {min_clock_pulse}')
@@ -773,7 +773,7 @@ def main():
                 data_out_pin=data_out_pin,
                 clock_pin=clock_pin,
                 clock_edge_polarity=clock_edge_polarity,
-                clock_transition_time=0.001e-12,  # TODO
+                clock_transition_time=1e-12,  # TODO
 
                 total_output_net_capacitance=output_capacitances,
                 input_net_transition=input_transition_times,

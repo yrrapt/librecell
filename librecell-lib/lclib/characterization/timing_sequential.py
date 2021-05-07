@@ -126,8 +126,8 @@ def find_minimum_pulse_width(
         rising_data_edge: bool,
         clock_rise_time: float,
         clock_fall_time: float,
+        clock_pulse_width_guess: float,
         output_load_capacitances: Dict[str, float] = None,
-        clock_pulse_width_guess: float = 1e-9,
         max_simulation_time: float = 1e-7,
         static_input_voltages: Dict[str, float] = None,
 ) -> float:
@@ -1013,6 +1013,9 @@ def measure_flip_flop_setup_hold(
     logger.debug(f"min_rise_delay = {min_rise_delay}")
     logger.debug(f"min_fall_delay = {min_fall_delay}")
 
+    logger.debug(f"setup_guess_rise = {setup_guess_rise}")
+    logger.debug(f"hold_guess_rise = {hold_guess_rise}")
+
     logger.info(f"roll_off_factor = {cfg.roll_off_factor}")
 
     # Define flip flop failure: FF fails if delay is larger than max_accepted_{rise,fall}_delay
@@ -1026,7 +1029,7 @@ def measure_flip_flop_setup_hold(
     edge_duration_fall = data_fall_time / df  # Time of edge going fully from 1 to 0.
 
     min_data_edge_separation = edge_duration_rise * (1 - cfg.trip_points.input_threshold_rise) + \
-                     edge_duration_fall * (1 - cfg.trip_points.input_threshold_fall)
+                               edge_duration_fall * (1 - cfg.trip_points.input_threshold_fall)
     min_data_edge_separation *= 1.01
     print(f"dr = {dr}")
     print(f"df = {df}")
@@ -1035,7 +1038,7 @@ def measure_flip_flop_setup_hold(
     # exit()
 
     # Tolerances for bisection root finding algorithm.
-    xtol = 1e-20
+    xtol = 1e-15
     rtol = 1e-6
 
     def find_min_setup(rising_data_edge: bool,
@@ -1104,7 +1107,7 @@ def measure_flip_flop_setup_hold(
         # Check if we really found the root of `f`.
         logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
         assert np.allclose(0, delay_err, atol=1e-12), "Failed to find solution for minimal setup time." \
-                                                               " Try to decrease the simulation time step."
+                                                      " Try to decrease the simulation time step."
 
         return min_setup_time, delay_err + max_delay
 
@@ -1155,11 +1158,176 @@ def measure_flip_flop_setup_hold(
         # Check if we really found the root of `f`.
         logger.info(f"delay error = {delay}")
         assert np.allclose(0, delay, atol=1e-12), "Failed to find solution for minimal hold time." \
-                                                           " Try to decrease the simulation time step."
+                                                  " Try to decrease the simulation time step."
 
         return min_hold_time_indep, f(min_hold_time_indep) + max_delay
 
+    def find_min_setup_plus_hold(rising_data_edge: bool, setup_guess: float, hold_guess: float) -> Tuple[float, float]:
+        """
+        Find the smallest `setup_time + hold_time` such that the flip-flop is operational and the output delay
+        corresponds to the maximum allowed delay.
+
+        Proceeds as follows:
+        1) Start with a guess of the time window. Set window center to 0.
+        3) Shift the center of the window such that the output delay is minimized. Update the window center.
+        2) Find the window width such that the resulting delay equals the maximum allowed delay. Update the window width.
+        4) If tolerance is not met: Continue at 2. Otherwise return the result.
+
+        :param rising_data_edge: True = rising data edge, False = falling data edge.
+        :param setup_guess: Initial value for the setup time.
+        :param hold_guess: Initial value for the hold time.
+        :return:
+        """
+        max_delay = max_rise_delay if rising_data_edge else max_fall_delay
+
+        logger.info(f"Find min. setup plus hold time."
+                    f"Initial setup = {setup_guess}, initial hold = {hold_guess}. "
+                    f"rising_data_edge = {rising_data_edge}")
+
+        def f(window_width: float, center: float) -> float:
+            """
+            Optimization function objective.
+            Setup and hold are represented as a time window around the clock edge where the data signal needs
+            to be stable.
+            The clock edge is assumed to come at time 0. The shift relative to the clock edge
+            is denoted by `center`.
+            :param window_width: setup_time + hold_time
+            :param center: (hold_time - setup_time) / 2
+            :return:
+            """
+            setup_time = window_width / 2 - center
+            hold_time = center + window_width / 2
+            delay = delay_f(setup_time=setup_time, hold_time=hold_time,
+                            rising_clock_edge=clock_edge_polarity,
+                            rising_data_edge=rising_data_edge)
+            return delay - max_delay
+
+        center = 0
+        window_width = setup_guess + hold_guess
+
+        def f_width(window_width: float):
+            return f(window_width, center)
+
+        width_lower_bound = window_width / 2
+        width_upper_bound = window_width
+
+        a = f_width(width_lower_bound)
+        b = f_width(width_upper_bound)
+
+        # Find the two bounds for the bisection search.
+        # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
+        while a <= 0:
+            width_lower_bound *= 0.5
+            a = f_width(width_lower_bound)
+
+        while b >= 0:
+            width_upper_bound *= 2
+            b = f_width(width_upper_bound)
+
+        assert b < 0 and a > 0
+
+        max_iter = 100  # Limit the number of iterations.
+        for i in range(100):
+            logger.debug(f"Find minimal setup+hold: iteration {i}")
+            # Remember window width to find out when to terminate the loop.
+            previous_width = window_width
+
+            # Minimize the output delay by adjusting the center of the window.
+            def f_center(center: float) -> float:
+                return f(window_width, center)
+
+            center_opt_result = optimize.minimize_scalar(
+                f_center,
+                bounds=[center - window_width / 2, center + window_width / 2],
+                method='bounded',
+                tol=xtol
+            )
+            assert center_opt_result.success, f"Optimization failed: {center_opt_result.message}"
+            center = center_opt_result.x
+
+            def f_width(window_width: float):
+                return f(window_width, center)
+
+            # Find window width such that the output delay is equal to the maximum allowed output delay.
+            new_window_width = optimize.bisect(f_width, width_lower_bound, width_upper_bound, xtol=xtol, rtol=rtol)
+            assert isinstance(new_window_width, float)
+            window_width = new_window_width
+
+            step = window_width - previous_width
+
+            if abs(step) < 1e-14:  # TODO: What tolerance to choose here?
+                setup_time = window_width / 2 - center
+                hold_time = center + window_width / 2
+                logger.debug(f"Found minimal setup + hold: "
+                             f"setup = {setup_time}, "
+                             f"hold = {hold_time}, "
+                             f"setup+hold={window_width}")
+                return setup_time, hold_time
+
+        assert False, f"Iteration limit reached: {max_iter}"
+
+        # # Determine min and max setup time for binary search.
+        # # shortest = -hold_time + data_rise_time + data_fall_time
+        # shortest = -hold_time
+        # longest = max(setup_guess_rise, shortest)
+        # assert shortest <= longest
+        # print(shortest, longest)
+        # a = f(shortest)
+        # b = f(longest)
+        # assert a > 0
+        # # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
+        # while not b < 0:
+        #     longest = longest * 2
+        #     b = f(longest)
+        #
+        # assert b < 0
+        # print(shortest, longest)
+
+        # if cfg.debug_plots:
+        # Plot data in debug mode.
+        # logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
+        # import matplotlib
+        # matplotlib.use('Agg')
+        # import matplotlib.pyplot as plt
+        #
+        # t_su = np.linspace(shortest, longest, num=100)
+        # err = np.vectorize(f)(t_su)
+        # plt.plot(t_su, err)
+        # plt.show()
+
+        x0 = [setup_guess, hold_guess]
+        x0 = [0.5e-9, 0.5e-9]
+        print(x0)
+        bounds = [(0, 1e-9), (0, 1e-9)]
+        min_setup_hold = optimize.minimize(f, x0=x0, method='SLSQP', bounds=bounds)
+
+        print(min_setup_hold)
+        exit()
+
+        # min_setup_time = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
+        # assert isinstance(min_setup_time, float)
+        # if math.isclose(min_setup_time, shortest) or math.isclose(min_setup_time, longest):
+        #     logger.warning("Result of binary search is on bounds. Optimal setup-time not found.")
+        #
+        # delay_err = f(min_setup_time)
+        # # Check if we really found the root of `f`.
+        # logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
+        # assert np.allclose(0, delay_err, atol=1e-12), "Failed to find solution for minimal setup time." \
+        #                                               " Try to decrease the simulation time step."
+        #
+        # return min_setup_time, delay_err + max_delay
+
+    logger.info("Find minimal setup + hold time.")
+    min_setup_plus_hold = find_min_setup_plus_hold(rising_data_edge=True,
+                                                   setup_guess=setup_guess_rise,
+                                                   hold_guess=hold_guess_rise
+                                                   )
+    min_setup, min_hold = min_setup_plus_hold
+    logger.info(f"Minimal setup+hold: setup = {min_setup}, hold = {min_hold}")
+    # TODO: Store minimal setup+hold
+
     logger.debug("Measure unconditional minimal setup time.")
+
     """
     The unconditional minimal setup time is the minimal setup time that can be achieved
     when the hold time is infinitely long, i.e. when the input data signal remains
@@ -1197,6 +1365,8 @@ def measure_flip_flop_setup_hold(
     dependent_setup_time_rise, dependent_setup_delay_rise = \
         find_min_setup(rising_data_edge=True,
                        hold_time=min_hold_time_uncond_rise)
+
+    exit()
 
     dependent_setup_time_fall, dependent_setup_delay_fall = \
         find_min_setup(rising_data_edge=False,

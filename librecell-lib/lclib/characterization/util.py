@@ -137,7 +137,7 @@ class CharacterizationConfig:
         self.debug_plots: bool = False
         "Enable more verbose debugging output such as plots of the simulations."
 
-        self.roll_off_factor: float = 0.05
+        self.roll_off_factor: float = 0.10
         """
         For characterization of setup/hold times. Must be a positive and non-zero value.
         
