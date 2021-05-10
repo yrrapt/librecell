@@ -886,14 +886,24 @@ def measure_flip_flop_setup_hold(
         data_rise_time: float,
         data_fall_time: float,
         clock_transition_time: float,
+        hold_margin: float = 1e-12,
+        setup_margin: float = 1e-12,
         static_input_voltages: Dict[str, float] = None
 ) -> FFSetupHoldResult:
     """
     Measure constraints (setup, hold) of a flip-flop.
     :param cell_conf:
+    :param hold_margin: Safety margin to put on the hold times. In seconds. Default is 1e-12s.
+        Should be larger than 0. Possibly in the order of a pico-second.
+    :param setup_margin: Safety margin to put on the hold times. In seconds. Default is 1e-12s.
+        Should be larger than 0. Possibly in the order of a pico-second.
     :return: Returns a `FFSetupHoldResult` object that bundles the results.
     """
+    assert isinstance(cell_conf, CellConfig)
     cfg = cell_conf.global_conf
+
+    assert hold_margin > 0
+    assert setup_margin > 0
 
     # TODO: find appropriate simulation_duration_hint
     clock_cycle_hint = 1e-9
@@ -1266,57 +1276,6 @@ def measure_flip_flop_setup_hold(
 
         assert False, f"Iteration limit reached: {max_iter}"
 
-        # # Determine min and max setup time for binary search.
-        # # shortest = -hold_time + data_rise_time + data_fall_time
-        # shortest = -hold_time
-        # longest = max(setup_guess_rise, shortest)
-        # assert shortest <= longest
-        # print(shortest, longest)
-        # a = f(shortest)
-        # b = f(longest)
-        # assert a > 0
-        # # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
-        # while not b < 0:
-        #     longest = longest * 2
-        #     b = f(longest)
-        #
-        # assert b < 0
-        # print(shortest, longest)
-
-        # if cfg.debug_plots:
-        # Plot data in debug mode.
-        # logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
-        # import matplotlib
-        # matplotlib.use('Agg')
-        # import matplotlib.pyplot as plt
-        #
-        # t_su = np.linspace(shortest, longest, num=100)
-        # err = np.vectorize(f)(t_su)
-        # plt.plot(t_su, err)
-        # plt.show()
-
-        x0 = [setup_guess, hold_guess]
-        x0 = [0.5e-9, 0.5e-9]
-        print(x0)
-        bounds = [(0, 1e-9), (0, 1e-9)]
-        min_setup_hold = optimize.minimize(f, x0=x0, method='SLSQP', bounds=bounds)
-
-        print(min_setup_hold)
-        exit()
-
-        # min_setup_time = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
-        # assert isinstance(min_setup_time, float)
-        # if math.isclose(min_setup_time, shortest) or math.isclose(min_setup_time, longest):
-        #     logger.warning("Result of binary search is on bounds. Optimal setup-time not found.")
-        #
-        # delay_err = f(min_setup_time)
-        # # Check if we really found the root of `f`.
-        # logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
-        # assert np.allclose(0, delay_err, atol=1e-12), "Failed to find solution for minimal setup time." \
-        #                                               " Try to decrease the simulation time step."
-        #
-        # return min_setup_time, delay_err + max_delay
-
     logger.info("Find minimal setup + hold time.")
     min_setup_plus_hold = find_min_setup_plus_hold(rising_data_edge=True,
                                                    setup_guess=setup_guess_rise,
@@ -1364,21 +1323,19 @@ def measure_flip_flop_setup_hold(
     # Find dependent setup time.
     dependent_setup_time_rise, dependent_setup_delay_rise = \
         find_min_setup(rising_data_edge=True,
-                       hold_time=min_hold_time_uncond_rise)
-
-    exit()
+                       hold_time=min_hold_time_uncond_rise + hold_margin)
 
     dependent_setup_time_fall, dependent_setup_delay_fall = \
         find_min_setup(rising_data_edge=False,
-                       hold_time=min_hold_time_uncond_fall)
+                       hold_time=min_hold_time_uncond_fall + hold_margin)
 
     dependent_hold_time_rise, dependent_hold_delay_rise = \
         find_min_hold(rising_data_edge=True,
-                      setup_time=min_setup_time_uncond_rise)
+                      setup_time=min_setup_time_uncond_rise + setup_margin)
 
     dependent_hold_time_fall, dependent_hold_delay_fall = \
         find_min_hold(rising_data_edge=False,
-                      setup_time=min_setup_time_uncond_fall)
+                      setup_time=min_setup_time_uncond_fall + setup_margin)
 
     logger.info(f"dep. setup (rise, fall): {dependent_setup_time_rise}, {dependent_setup_time_fall}")
     logger.info(f"dep. setup delay (rise, fall): {dependent_setup_delay_rise}, {dependent_setup_delay_fall}")
