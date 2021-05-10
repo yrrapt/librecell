@@ -1169,8 +1169,8 @@ def measure_flip_flop_setup_hold(
 
         Proceeds as follows:
         1) Start with a guess of the time window. Set window center to 0.
-        3) Shift the center of the window such that the output delay is minimized. Update the window center.
-        2) Find the window width such that the resulting delay equals the maximum allowed delay. Update the window width.
+        2) Shift the center of the window such that the output delay is minimized. Update the window center.
+        3) Find the window width such that the resulting delay equals the maximum allowed delay. Update the window width.
         4) If tolerance is not met: Continue at 2. Otherwise return the result.
 
         :param rising_data_edge: True = rising data edge, False = falling data edge.
