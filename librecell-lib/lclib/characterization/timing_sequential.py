@@ -1276,14 +1276,15 @@ def measure_flip_flop_setup_hold(
 
         assert False, f"Iteration limit reached: {max_iter}"
 
-    logger.info("Find minimal setup + hold time.")
-    min_setup_plus_hold = find_min_setup_plus_hold(rising_data_edge=True,
-                                                   setup_guess=setup_guess_rise,
-                                                   hold_guess=hold_guess_rise
-                                                   )
-    min_setup, min_hold = min_setup_plus_hold
-    logger.info(f"Minimal setup+hold: setup = {min_setup}, hold = {min_hold}")
-    # TODO: Store minimal setup+hold
+    if False:
+        logger.info("Find minimal setup + hold time.")
+        min_setup_plus_hold = find_min_setup_plus_hold(rising_data_edge=True,
+                                                       setup_guess=setup_guess_rise,
+                                                       hold_guess=hold_guess_rise
+                                                       )
+        min_setup, min_hold = min_setup_plus_hold
+        logger.info(f"Minimal setup+hold: setup = {min_setup}, hold = {min_hold}")
+        # TODO: Store minimal setup+hold
 
     logger.debug("Measure unconditional minimal setup time.")
 
