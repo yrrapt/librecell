@@ -215,12 +215,12 @@ def find_minimum_pulse_width(
             # Rising edge.
             # Add a margin on the threshold to simulate a bit longer.
             threshold = 1 - 0.1 * (1 - cfg.trip_points.output_threshold_rise)
-            breakpoint_statement = f"stop when v({data_out}) > {supply_voltage * threshold}"
+            breakpoint_statement = f"stop when v({data_out}) > {supply_voltage * threshold} when time > 0"
         else:
             # Falling edge.
             # Subtract a margin on the threshold to simulate a bit longer.
             threshold = 0.1 * cfg.trip_points.output_threshold_fall
-            breakpoint_statement = f"stop when v({data_out}) < {supply_voltage * threshold}"
+            breakpoint_statement = f"stop when v({data_out}) < {supply_voltage * threshold} when time > 0"
         breakpoints = [breakpoint_statement]
 
         # Simulation script file path.
@@ -327,6 +327,7 @@ def find_minimum_pulse_width(
         logger.debug(f"Pulse width = {pulse_width}, Delay = {delay}")
         if math.isinf(delay):
             pulse_width = pulse_width * 2
+            assert pulse_width < 1e-6, "Does not converge."
         else:
             break
     # Remember the upper bound of the pulse width.
@@ -524,7 +525,7 @@ def get_clock_to_output_delay(
     if setup_statements is None:
         setup_statements = []
 
-    period = max(clock_cycle_hint, input_rise_time + input_fall_time)
+    period = max(clock_cycle_hint, input_rise_time + input_fall_time, clock_rise_time + clock_fall_time)
 
     # Generate the wave form of the clock.
     # First a clock pulse makes sure that the right state is sampled into the cell.
@@ -538,7 +539,9 @@ def get_clock_to_output_delay(
         fall_threshold=trip_points.input_threshold_fall
     )
 
-    t_clock_edge = 4 * period + setup_time
+    t_clock_edge = 4 * period + max(setup_time, 0)
+
+    assert t_clock_edge > 0
 
     # Generate the clock edge relative to which the delay will be measured.
     clock_edge = StepWave(
@@ -614,6 +617,7 @@ def get_clock_to_output_delay(
     # Set a breakpoint that is active only short before the actual clock edge.
     # This way it ignores signal changes during the initialization.
     cmp = '>' if rising_data_edge else '<'
+    assert t_clock_edge - period / 2 > 0
     breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
                            f"when time > {t_clock_edge - period / 2}"
 
@@ -990,13 +994,12 @@ def measure_flip_flop_setup_hold(
             logger.debug('Cache hit.')
         return result
 
-    def find_min_data_delay(rising_data_edge: bool, tolerance: float = 1e-3) -> Tuple[float, Tuple[float, float]]:
+    def find_min_data_delay(rising_data_edge: bool, abstol: float = 1e-12) -> Tuple[float, Tuple[float, float]]:
         """ Find minimum clock->data delay (with large setup/hold window).
 
         Procedure is as follows: Setup and hold time are increased until the data delay reaches a stable value.
 
-        The tolerance should be chosen smaller than the roll-off factor.
-        As a rule of thumb chose the tolerance as 0.1 * roll_off_factor
+        The tolerance should be chosen in the order of the accepted absolute error.
         """
 
         # TODO: Find a estimate start value for setup and hold times.
@@ -1019,18 +1022,21 @@ def measure_flip_flop_setup_hold(
 
             if prev_delay is not None and delay != float('Inf'):
                 diff = abs(delay - prev_delay)
-                fraction = diff / delay
-                if fraction < tolerance:
+                if diff < abstol:
                     # Close enough.
                     break
             setup_time = setup_time * 2
             hold_time = hold_time * 2
 
+            assert setup_time < 1e-6, "Does not converge."
+            assert hold_time < 1e-6, "Does not converge."
+
             prev_delay = delay
 
         logger.info(f"Minimum clock to data delay: {delay}. "
                     f"(Iterations = {next(ctr)}, "
-                    f"setup_time = {setup_time}, hold_time = {hold_time})")
+                    f"setup_time = {setup_time}, hold_time = {hold_time}, "
+                    f"absolute error = {diff})")
 
         # Return the minimum delay and setup/hold times that lead to it.
         # setup/hold times are divided by 2 because the previous values actually lead to a delay that is close enough.
@@ -1040,8 +1046,9 @@ def measure_flip_flop_setup_hold(
     # They are used to determine the target data delays when finding
     # setup and hold times.
     logger.info("Find minimal propagation delays.")
-    min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge=True)
-    min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge=False)
+    tolerance = 1e-12
+    min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge=True, abstol=tolerance)
+    min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge=False, abstol=tolerance)
 
     logger.debug(f"min_rise_delay = {min_rise_delay}")
     logger.debug(f"min_fall_delay = {min_fall_delay}")
@@ -1049,11 +1056,11 @@ def measure_flip_flop_setup_hold(
     logger.debug(f"setup_guess_rise = {setup_guess_rise}")
     logger.debug(f"hold_guess_rise = {hold_guess_rise}")
 
-    logger.info(f"roll_off_factor = {cfg.roll_off_factor}")
+    logger.info(f"max. allowed clock-to-output push-out time = {cfg.max_pushout_time}")
 
     # Define flip flop failure: FF fails if delay is larger than max_accepted_{rise,fall}_delay
-    max_rise_delay = min_rise_delay * (1 + cfg.roll_off_factor)
-    max_fall_delay = min_fall_delay * (1 + cfg.roll_off_factor)
+    max_rise_delay = min_rise_delay + cfg.max_pushout_time
+    max_fall_delay = min_fall_delay + cfg.max_pushout_time
 
     # Compute the closest delay from rising to falling data edge based on the slew.
     dr = cfg.trip_points.slew_upper_threshold_rise - cfg.trip_points.slew_lower_threshold_rise
@@ -1117,6 +1124,7 @@ def measure_flip_flop_setup_hold(
 
         while not b < 0:
             longest = longest * 2
+            assert longest < 1e-6, "Does not converge."
             b = f(longest)
 
         assert b < 0
@@ -1141,7 +1149,7 @@ def measure_flip_flop_setup_hold(
         delay_err = f(min_setup_time)
         # Check if we really found the root of `f`.
         logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
-        assert np.allclose(0, delay_err, atol=1e-12), "Failed to find solution for minimal setup time." \
+        assert np.allclose(0, delay_err, atol=10e-12), "Failed to find solution for minimal setup time." \
                                                       " Try to decrease the simulation time step."
 
         return min_setup_time, delay_err + max_delay
@@ -1183,6 +1191,7 @@ def measure_flip_flop_setup_hold(
         # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
         while not b < 0:
             longest = longest * 2
+            assert longest < 1e-6, "Does not converge."
             b = f(longest)
 
         assert b < 0
@@ -1192,7 +1201,7 @@ def measure_flip_flop_setup_hold(
         delay = f(min_hold_time_indep)
         # Check if we really found the root of `f`.
         logger.info(f"delay error = {delay}")
-        assert np.allclose(0, delay, atol=1e-12), "Failed to find solution for minimal hold time." \
+        assert np.allclose(0, delay, atol=10e-12), "Failed to find solution for minimal hold time." \
                                                   " Try to decrease the simulation time step."
 
         return min_hold_time_indep, f(min_hold_time_indep) + max_delay
@@ -1316,7 +1325,7 @@ def measure_flip_flop_setup_hold(
     when the hold time is infinitely long, i.e. when the input data signal remains
     stable forever after the clock edge.
     """
-    hold_time_guess = max(hold_guess_rise, hold_guess_fall) * 4
+    hold_time_guess = max(hold_guess_rise, hold_guess_fall) * 8
     min_setup_time_uncond_rise, min_setup_delay_rise = find_min_setup(rising_data_edge=True,
                                                                       hold_time=hold_time_guess)
     min_setup_time_uncond_fall, min_setup_delay_fall = find_min_setup(rising_data_edge=False,
@@ -1333,7 +1342,7 @@ def measure_flip_flop_setup_hold(
     when the setup time is infinitely long, i.e. when the input data signal is already stable
     since an infinite time before the clock edge.
     """
-    setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 4  # TODO: How to choose the initial value?
+    setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 8  # TODO: How to choose the initial value?
     min_hold_time_uncond_rise, min_hold_delay_rise = find_min_hold(rising_data_edge=True,
                                                                    setup_time=setup_time_guess)
     min_hold_time_uncond_fall, min_hold_delay_fall = find_min_hold(rising_data_edge=False,
@@ -1353,6 +1362,7 @@ def measure_flip_flop_setup_hold(
         find_min_setup(rising_data_edge=False,
                        hold_time=min_hold_time_uncond_fall + hold_margin)
 
+    # Find dependent hold time.
     dependent_hold_time_rise, dependent_hold_delay_rise = \
         find_min_hold(rising_data_edge=True,
                       setup_time=min_setup_time_uncond_rise + setup_margin)
