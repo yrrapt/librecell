@@ -123,7 +123,7 @@ def main():
                              " List must be quoted, elements must be separated by a comma."
                              " Example: '0.05, 0.1, 0.2'")
 
-    parser.add_argument('--related-pin-transition', required=True, metavar='SLEWTIMES', type=str,
+    parser.add_argument('--related-pin-transition', required=False, metavar='SLEWTIMES', type=str,
                         help="List of slew times of the clock signal in nano seconds. "
                              "This is used for sequential cells only. "
                              "List must be quoted, elements must be separated by a comma. "
@@ -213,6 +213,9 @@ def main():
     new_library = deepcopy(library)
     # Strip all cell groups.
     new_library.groups = [g for g in new_library.groups if g.group_name != 'cell']
+    # Strip away all LUT template table groups.
+    table_types = ['lu_table_template', 'power_lut_template']
+    new_library.groups = [g for g in new_library.groups if g.group_name not in table_types]
 
     # Load operation voltage and temperature.
     # TODO: load voltage/temperature from operating_conditions group
@@ -724,8 +727,10 @@ def main():
                     # TODO: get correct index/variable mapping from liberty file.
                     index_1 = result['total_output_net_capacitance'] * capacitance_unit_scale_factor
                     index_2 = result['input_net_transition'] * time_unit_scale_factor
-                    # TODO: remember all necessary templates and create template tables.
-                    table_template_name = 'delay_template_{}x{}'.format(len(index_1), len(index_2))
+
+                    # Create template tables.
+                    template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
+                    table_template_name = template_table.args[0]
 
                     # Create liberty timing tables.
                     timing_tables = []
@@ -813,7 +818,11 @@ def main():
 
             for constraint_type in ['hold', 'setup']:
                 # TODO: Create missing template tables.
-                table_template_name = f'{constraint_type}_template_{len(index_1)}x{len(index_2)}'
+
+                template_table = liberty_util.create_constraint_template_table(
+                    new_library, constraint_type, len(index_1), len(index_2)
+                )
+                table_template_name = template_table.args[0]
 
                 rise_constraint = Group('rise_constraint', args=[table_template_name])
                 rise_constraint.set_array('index_1', index_1)

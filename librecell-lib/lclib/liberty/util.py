@@ -18,10 +18,9 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 from liberty.types import Group
-from liberty.parser import parse_boolean_function
-import sympy
-from sympy.utilities.lambdify import lambdify
 import logging
+from typing import Optional
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +69,123 @@ def get_pin_information(cell_group: Group):
             logger.warning("Pin direction type not handled: {}".format(direction))
 
     return input_pins, output_pins, output_functions
+
+
+def create_table_template_if_not_exists(library: Group,
+                                        table_type: str,
+                                        name: str,
+                                        n: int, m: int,
+                                        variable1: str,
+                                        variable2: Optional[str] = None,
+                                        ) -> Group:
+    """
+    Create a lookup table template if it does not exist.
+
+    The table name will be `'{name}_template_{n}x{m}'`.
+
+    :param library: Library group where the template is added.
+    :param table_type: Group name of the template table. One of ['lu_table_template', 'power_lut_template'].
+    :param name:
+    :param n: Length of index_1.
+    :param m: Length of index_2
+    :param variable1:
+    :param variable2:
+    :return:
+    """
+
+    table_types = ['lu_table_template', 'power_lut_template']
+    assert table_type in table_types, f"table_type must be one of {table_type}."
+    names = ['delay', 'energy', 'setup', 'hold', 'passive_energy', 'recovery', 'removal']
+    assert name in names, f"name must be one of {names}."
+
+    full_name = f"{name}_template_{n}x{m}"
+
+    logger.info(f"Create table template: {table_type}({full_name})")
+
+    # Test if table already exists.
+    table = library.get_groups(table_type, argument=full_name)
+    if table:
+        return table[0]
+
+    else:
+        # Create table.
+        attributes = {
+            'variable_1': [variable1]
+        }
+        if m > 1:
+            assert variable2 is not None
+            attributes['variable_2'] = [variable2]
+
+        table = Group(table_type,
+                      args=[full_name],
+                      attributes=attributes
+                      )
+
+        index_1 = np.arange(n, dtype=float) + 1000
+
+        table.set_array('index_1', index_1)
+        if m > 1:
+            index_2 = np.arange(m, dtype=float) + 1000
+            table.set_array('index_2', index_2)
+
+        library.groups.append(table)
+
+        return table
+
+
+def create_delay_template_table(library: Group, n: int, m: int) -> Group:
+    """
+    Create a `lu_table_template(delay_template_nxm)` group and add it to the library.
+    :param library:
+    :param n:
+    :param m:
+    :return:
+    """
+    return create_table_template_if_not_exists(
+        library=library,
+        table_type='lu_table_template',
+        name='delay',
+        n=n,
+        m=m,
+        variable1='total_output_net_capacitance',
+        variable2='input_net_transition'
+    )
+
+
+def create_power_template_table(library: Group, n: int, m: int) -> Group:
+    """
+    Create a `power_lut_template(energy_template_nxm)` group and add it to the library.
+    :param library:
+    :param n:
+    :param m:
+    :return:
+    """
+    return create_table_template_if_not_exists(
+        library=library,
+        table_type='power_lut_template',
+        name='energy',
+        n=n,
+        m=m,
+        variable1='total_output_net_capacitance',
+        variable2='input_net_transition'
+    )
+
+
+def create_constraint_template_table(library: Group, name: str, n: int, m: int) -> Group:
+    """
+    Create a `lu_table_template(delay_template_nxm)` group and add it to the library.
+    :param library:
+    :param name: 'setup', 'hold', 'removal' or 'recovery'
+    :param n:
+    :param m:
+    :return:
+    """
+    return create_table_template_if_not_exists(
+        library=library,
+        table_type='lu_table_template',
+        name=name,
+        n=n,
+        m=m,
+        variable1='related_pin_transition',
+        variable2='constrained_pin_transition'
+    )
