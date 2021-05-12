@@ -122,7 +122,7 @@ class CharacterizationConfig:
         """SPICE statements that are included at the beginning of the simulation. 
         This should be used for .INCLUDE and .LIB statements."""
 
-        self.time_resolution: float = 1e-12
+        self.time_step: float = 1e-12
         "Time resolution of the simulation."
 
         self.temperature = 27

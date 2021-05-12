@@ -88,7 +88,7 @@ def ff_find_stabilization_time(
     clock_edge *= supply_voltage
 
     threshold = 0.5
-    breakpoint = f"stop when v({data_out}) > {supply_voltage * threshold} after {t_clock_edge}"
+    breakpoint = f"stop when v({data_out}) > {supply_voltage * threshold} when time > {t_clock_edge}"
     breakpoints = [breakpoint]
 
     simulation_title = "Estimate flip-flop propagation speed (CLK->D_Out)."
@@ -250,7 +250,7 @@ def find_minimum_pulse_width(
             simulation_title=simulation_title,
             temperature=cfg.temperature,
             output_load_capacitances=output_load_capacitances,
-            time_step=cfg.time_resolution,
+            time_step=cfg.time_step,
             setup_statements=includes,
             ground_net=cell_config.ground_net,
             debug=cfg.debug,
@@ -480,6 +480,7 @@ def get_clock_to_output_delay(
         output_load_capacitances: Dict[str, float] = None,
         setup_statements: List[str] = None,
         input_voltages: Dict[str, float] = None,
+        include_slew: bool = False,
 ) -> float:
     """Get the delay from the clock edge to the output edge.
 
@@ -498,6 +499,7 @@ def get_clock_to_output_delay(
     :param clock_cycle_hint: Run the simulation for at least this amount of time.
     :param setup_statements: SPICE statements that are included at the beginning of the simulation.
         This should be used for .INCLUDE and .LIB statements.
+    :param include_slew: If set to True return a tuple of (delay time, slew time).
     :return: Returns the delay from the clock edge to the data edge.
      Returns `Inf` if the output does not toggle within the maximum simulation time.
     """
@@ -604,19 +606,24 @@ def get_clock_to_output_delay(
         # Rising edge.
         # Add a margin on the threshold to simulate a bit longer.
         threshold = 1 - 0.1 * (1 - trip_points.output_threshold_rise)
-        breakpoint_statement = f"stop when v({data_out}) > {supply_voltage * threshold}"
     else:
         # Falling edge.
         # Subtract a margin on the threshold to simulate a bit longer.
         threshold = 0.1 * trip_points.output_threshold_fall
-        breakpoint_statement = f"stop when v({data_out}) < {supply_voltage * threshold}"
+
+    # Set a breakpoint that is active only short before the actual clock edge.
+    # This way it ignores signal changes during the initialization.
+    cmp = '>' if rising_data_edge else '<'
+    breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
+                           f"when time > {t_clock_edge - period / 2}"
+
     breakpoints = [breakpoint_statement]
 
     # Simulation script file path.
-    file_name = f"lctime_clock_to_output_delay_" \
-                f"{''.join((f'{net}={v}' for net, v in input_voltages.items()))}_" \
-                f"{'clk_rising' if rising_clock_edge else 'clk_falling'}_" \
-                f"{'data_rising' if rising_data_edge else 'data_falling'}"
+    # file_name = f"lctime_clock_to_output_delay_" \
+    #             f"{''.join((f'{net}={v}' for net, v in input_voltages.items()))}_" \
+    #             f"{'clk_rising' if rising_clock_edge else 'clk_falling'}_" \
+    #             f"{'data_rising' if rising_data_edge else 'data_falling'}"
 
     file_name = f"lctime_clock_to_output_delay_" \
                 f"{'clk_rising' if rising_clock_edge else 'clk_falling'}_" \
@@ -629,6 +636,10 @@ def get_clock_to_output_delay(
     sim_plot_file = os.path.join(workingdir, f"{file_name}_plot.svg")
 
     simulation_title = f"Measure constraint '{data_in}'-'{clock_input}'->'{data_out}', rising_clock_edge={rising_clock_edge}."
+
+    # Choose time step adaptively relative to the smalles input transition time.
+    # Upper bound: set by global config.
+    time_step = max(cfg.time_step, min(clock_rise_time, input_rise_time) / 128)
 
     time, voltages, currents = simulate_cell(
         cell_name=cell_conf.cell_name,
@@ -644,7 +655,7 @@ def get_clock_to_output_delay(
         simulation_title=simulation_title,
         temperature=cfg.temperature,
         output_load_capacitances=output_load_capacitances,
-        time_step=cfg.time_resolution,
+        time_step=time_step,
         setup_statements=setup_statements,
         ground_net=ground_net,
         debug=cfg.debug,
@@ -672,7 +683,7 @@ def get_clock_to_output_delay(
         plt.close()
 
     # Start of interesting interval
-    samples_per_period = int(period / cfg.time_resolution)
+    samples_per_period = int(period / cfg.time_step)
     start = int((t_clock_edge - period / 2) / period * samples_per_period)
 
     # Cut away initialization signals.
@@ -707,11 +718,17 @@ def get_clock_to_output_delay(
         # Output has rising edge
         delay = get_input_to_output_delay(time=time, input_signal=clock_voltage,
                                           output_signal=output_voltage, trip_points=trip_points)
+        slew = get_slew_time(time=time, voltage=output_voltage, trip_points=trip_points)
     else:
         # There's no edge in the output. Delay is infinite.
         delay = float('Inf')
+        slew = float('Inf')
 
-    return delay
+    if include_slew:
+        return delay, slew
+    else:
+        # Default:
+        return delay
 
 
 def test_plot_flipflop_setup_behavior():
@@ -774,12 +791,11 @@ def characterize_flip_flop_setup_hold(
         clock_pin: str,
         clock_edge_polarity: bool,
 
-        clock_transition_time: float,
+        related_pin_transition: np.ndarray,
+        constrained_pin_transition: np.ndarray,
 
-        total_output_net_capacitance: np.ndarray,
-        input_net_transition: np.ndarray,
-
-        static_input_voltages: Dict[str, float] = None
+        static_input_voltages: Dict[str, float] = None,
+        output_load_capacitance: float = 0,
 
 ) -> Dict[str, np.ndarray]:
     """
@@ -791,22 +807,21 @@ def characterize_flip_flop_setup_hold(
     :param data_in_pin: The constrained pin.
     :param data_out_pin: Data output pin of the flip-flop.
     :param clock_pin: The related pin.
-    :param clock_transition_time: Transition time of the clock signal (rising and falling edge).
-    :param total_output_net_capacitance: List of output capacitances at `data_out_pin`.
-    :param input_net_transition: List of input transition times.
+    :param related_pin_transition: List of clock transition times.
+    :param constrained_pin_transition: List of input transition times.
     :param static_input_voltages: Static input signals other than VDD/GND.
     This should include clear/preset and scan_enable signals, if there are any.
     :return:
     """
 
-    def f(input_transition_time: float, output_cap: float):
+    def f(input_transition_time: float, clock_transition_time: float):
         result = measure_flip_flop_setup_hold(
             cell_conf=cell_conf,
             data_in_pin=data_in_pin,
             data_out_pin=data_out_pin,
             clock_pin=clock_pin,
             clock_edge_polarity=clock_edge_polarity,
-            output_load_capacitances={data_out_pin: output_cap},
+            output_load_capacitances={data_out_pin: output_load_capacitance},
             data_rise_time=input_transition_time,
             data_fall_time=input_transition_time,
             clock_transition_time=clock_transition_time,
@@ -828,7 +843,7 @@ def characterize_flip_flop_setup_hold(
 
     f_vec = np.vectorize(f, cache=True)
 
-    xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
+    xx, yy = np.meshgrid(constrained_pin_transition, related_pin_transition)
 
     # Evaluate timing on the input_slew*load_capacitance grid.
     (setup_time_rise, setup_time_fall, setup_delay_rise, setup_delay_fall,
@@ -839,8 +854,8 @@ def characterize_flip_flop_setup_hold(
     cell_fall = setup_delay_fall
 
     return {
-        'total_output_net_capacitance': total_output_net_capacitance,
-        'input_net_transition': input_net_transition,
+        'related_pin_transition': related_pin_transition,
+        'constrained_pin_transition': constrained_pin_transition,
         'setup_rise_constraint': setup_time_rise,
         'setup_fall_constraint': setup_time_fall,
         'hold_rise_constraint': hold_time_rise,
@@ -875,6 +890,15 @@ class FFSetupHoldResult:
         self.dependent_hold_delay_fall = 0
         "Data output delay for a falling data signal when the hold time is `dependent_hold_time_fall`."
 
+        self.minimum_delay_rise = 0
+        """
+        Absolute minimal clock-to-output delay that can be achieved with large setup and hold windows.
+        """
+        self.minimum_delay_fall = 0
+        """
+        Absolute minimal clock-to-output delay that can be achieved with large setup and hold windows.
+        """
+
 
 def measure_flip_flop_setup_hold(
         cell_conf: CellConfig,
@@ -886,8 +910,8 @@ def measure_flip_flop_setup_hold(
         data_rise_time: float,
         data_fall_time: float,
         clock_transition_time: float,
-        hold_margin: float = 1e-12,
-        setup_margin: float = 1e-12,
+        hold_margin: float = 10e-12,
+        setup_margin: float = 10e-12,
         static_input_voltages: Dict[str, float] = None
 ) -> FFSetupHoldResult:
     """
@@ -992,7 +1016,6 @@ def measure_flip_flop_setup_hold(
             delay = delay_f(setup_time, hold_time,
                             rising_clock_edge=clock_edge_polarity,
                             rising_data_edge=rising_data_edge)
-            print(delay)
 
             if prev_delay is not None and delay != float('Inf'):
                 diff = abs(delay - prev_delay)
@@ -1040,12 +1063,11 @@ def measure_flip_flop_setup_hold(
 
     min_data_edge_separation = edge_duration_rise * (1 - cfg.trip_points.input_threshold_rise) + \
                                edge_duration_fall * (1 - cfg.trip_points.input_threshold_fall)
-    min_data_edge_separation *= 1.01
-    print(f"dr = {dr}")
-    print(f"df = {df}")
-    print(f"edge_duration_rise = {edge_duration_rise}")
-    print(f"min_separation = {min_data_edge_separation}")
-    # exit()
+    # min_data_edge_separation *= 1.01
+    # print(f"dr = {dr}")
+    # print(f"df = {df}")
+    # print(f"edge_duration_rise = {edge_duration_rise}")
+    # print(f"min_separation = {min_data_edge_separation}")
 
     # Tolerances for bisection root finding algorithm.
     xtol = 1e-15
@@ -1084,17 +1106,20 @@ def measure_flip_flop_setup_hold(
         shortest = -hold_time
         longest = max(setup_guess_rise, shortest)
         assert shortest <= longest
-        print(shortest, longest)
         a = f(shortest)
         b = f(longest)
-        assert a > 0
         # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
+        while not a > 0:
+            shortest = shortest / 2
+            a = f(shortest)
+
+        assert a > 0
+
         while not b < 0:
             longest = longest * 2
             b = f(longest)
 
         assert b < 0
-        print(shortest, longest)
 
         # if cfg.debug_plots:
         # Plot data in debug mode.
@@ -1215,27 +1240,6 @@ def measure_flip_flop_setup_hold(
         center = 0
         window_width = setup_guess + hold_guess
 
-        def f_width(window_width: float):
-            return f(window_width, center)
-
-        width_lower_bound = window_width / 2
-        width_upper_bound = window_width
-
-        a = f_width(width_lower_bound)
-        b = f_width(width_upper_bound)
-
-        # Find the two bounds for the bisection search.
-        # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
-        while a <= 0:
-            width_lower_bound *= 0.5
-            a = f_width(width_lower_bound)
-
-        while b >= 0:
-            width_upper_bound *= 2
-            b = f_width(width_upper_bound)
-
-        assert b < 0 and a > 0
-
         max_iter = 100  # Limit the number of iterations.
         for i in range(100):
             logger.debug(f"Find minimal setup+hold: iteration {i}")
@@ -1259,6 +1263,25 @@ def measure_flip_flop_setup_hold(
                 return f(window_width, center)
 
             # Find window width such that the output delay is equal to the maximum allowed output delay.
+
+            width_lower_bound = window_width / 2
+            width_upper_bound = window_width
+
+            a = f_width(width_lower_bound)
+            b = f_width(width_upper_bound)
+
+            # Find the two bounds for the bisection search.
+            # Make sure that sign(f(a)) != sign(f(b)) such that the zero can be found with a binary search.
+            while a <= 0:
+                width_lower_bound *= 0.5
+                a = f_width(width_lower_bound)
+
+            while b >= 0:
+                width_upper_bound *= 2
+                b = f_width(width_upper_bound)
+
+            assert b < 0 and a > 0
+
             new_window_width = optimize.bisect(f_width, width_lower_bound, width_upper_bound, xtol=xtol, rtol=rtol)
             assert isinstance(new_window_width, float)
             window_width = new_window_width
@@ -1310,7 +1333,7 @@ def measure_flip_flop_setup_hold(
     when the setup time is infinitely long, i.e. when the input data signal is already stable
     since an infinite time before the clock edge.
     """
-    setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 40  # TODO: How to choose the initial value?
+    setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 4  # TODO: How to choose the initial value?
     min_hold_time_uncond_rise, min_hold_delay_rise = find_min_hold(rising_data_edge=True,
                                                                    setup_time=setup_time_guess)
     min_hold_time_uncond_fall, min_hold_delay_fall = find_min_hold(rising_data_edge=False,
@@ -1355,5 +1378,8 @@ def measure_flip_flop_setup_hold(
     result.dependent_hold_time_fall = dependent_hold_time_fall
     result.dependent_hold_delay_rise = dependent_hold_delay_rise
     result.dependent_hold_delay_fall = dependent_hold_delay_fall
+
+    result.minimum_delay_rise = min_rise_delay
+    result.minimum_delay_fall = min_fall_delay
 
     return result

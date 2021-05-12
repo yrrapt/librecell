@@ -38,21 +38,21 @@ logger = logging.getLogger(__name__)
 
 
 def characterize_comb_cell(
-                           input_pins: List[str],
-                           output_pin: str,
-                           related_pin: str,
-                           output_functions: Dict[str, Callable],
+        input_pins: List[str],
+        output_pin: str,
+        related_pin: str,
+        output_functions: Dict[str, Callable],
 
-                           total_output_net_capacitance: np.ndarray,
-                           input_net_transition: np.ndarray,
+        total_output_net_capacitance: np.ndarray,
+        input_net_transition: np.ndarray,
 
-                           cell_conf: CellConfig,
+        cell_conf: CellConfig,
 
-                           ) -> Dict[str, np.ndarray]:
+) -> Dict[str, np.ndarray]:
     """
     Calculate the NDLM timing table of a cell for a given timing arc.
     :param cell_conf: Parameters and configuration for the characterization.
-    :param input_net_transition: Transistion times of input signals in seconds.
+    :param input_net_transition: Transition times of input signals in seconds.
     :param total_output_net_capacitance: Load capacitance in Farads.
     :param input_pins: List of input pins.
     :param output_pin: The output pin of the timing arc.
@@ -80,7 +80,7 @@ def characterize_comb_cell(
 
     # TODO
     # Maximum simulation time.
-    time_max = cfg.time_resolution * 1e5
+    time_max = cfg.time_step * 1e5
 
     # Find function to summarize different timing arcs.
     # TODO: Make this directly parametrizable by caller.
@@ -105,11 +105,11 @@ def characterize_comb_cell(
         "Boolean function not defined for output pin '{}'".format(output_pin)
     output_function = output_functions[output_pin]
 
-    def f(input_transition_time, output_cap):
+    def f(input_transition_time: float, output_cap: float):
         """
         Evaluate cell timing at a single input-transition-time/output-capacitance point.
-        :param input_transition_time:
-        :param output_cap:
+        :param input_transition_time: Transition time (slew) of the active input signal.
+        :param output_cap: Load capacitance at the output.
         :return:
         """
 
@@ -225,7 +225,7 @@ def characterize_comb_cell(
                     simulation_title=simulation_title,
                     temperature=cfg.temperature,
                     output_load_capacitances={output_pin: output_cap},
-                    time_step=cfg.time_resolution,
+                    time_step=cfg.time_step,
                     setup_statements=setup_statements,
                     ground_net=cell_conf.ground_net,
                     debug=cfg.debug,
@@ -316,14 +316,17 @@ def characterize_comb_cell(
         return (reduction_function(np.array(rise_delays)),
                 reduction_function(np.array(fall_delays)),
                 reduction_function(np.array(rise_transition_durations)),
-                reduction_function(np.array(fall_transition_durations)))
+                reduction_function(np.array(fall_transition_durations)),
+                reduction_function(np.array(rise_powers)),
+                reduction_function(np.array(fall_powers)),
+                )
 
     f_vec = np.vectorize(f, cache=True)
 
     xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
 
     # Evaluate timing on the grid.
-    cell_rise, cell_fall, rise_transition, fall_transition = f_vec(xx, yy)
+    cell_rise, cell_fall, rise_transition, fall_transition, rise_power, fall_power = f_vec(xx, yy)
 
     # Return the tables by liberty naming scheme.
     return {
@@ -332,5 +335,7 @@ def characterize_comb_cell(
         'cell_rise': cell_rise,
         'cell_fall': cell_fall,
         'rise_transition': rise_transition,
-        'fall_transition': fall_transition
+        'fall_transition': fall_transition,
+        'rise_power': rise_power,
+        'fall_power': fall_power
     }

@@ -119,9 +119,15 @@ def main():
                              " Example: '0.05, 0.1, 0.2'")
 
     parser.add_argument('--slew-times', required=True, metavar='SLEWTIMES', type=str,
-                        help="List of slew times of the input signals nano seconds."
+                        help="List of slew times of the input signals in nano seconds."
                              " List must be quoted, elements must be separated by a comma."
                              " Example: '0.05, 0.1, 0.2'")
+
+    parser.add_argument('--related-pin-transition', required=True, metavar='SLEWTIMES', type=str,
+                        help="List of slew times of the clock signal in nano seconds. "
+                             "This is used for sequential cells only. "
+                             "List must be quoted, elements must be separated by a comma. "
+                             "Example: '0.05, 0.1, 0.2'")
 
     parser.add_argument('--analyze-cell-function', action='store_true',
                         help='Derive the logical function of the cell from the SPICE netlist (experimental).')
@@ -319,8 +325,17 @@ def main():
     output_capacitances = np.array([float(s.strip()) for s in args.output_loads.split(",")]) * 1e-12  # pF
     input_transition_times = np.array([float(s.strip()) for s in args.slew_times.split(",")]) * 1e-9  # ns
 
+    # Transition times of the clock pin.
+    if args.related_pin_transition:
+        related_pin_transition = np.array(
+            [float(s.strip()) for s in args.related_pin_transition.split(",")]) * 1e-9  # ns
+    else:
+        related_pin_transition = None
+
     logger.info(f"Output capacitances [pF]: {output_capacitances * 1e12}")
     logger.info(f"Input slew times [ns]: {input_transition_times * 1e9}")
+    if related_pin_transition is not None:
+        logger.info(f"Related pin transition times [ns]: {related_pin_transition * 1e9}")
 
     # TODO: Make time resolution parametrizable.
     time_resolution_seconds = float(args.time_step)
@@ -337,7 +352,7 @@ def main():
     conf.trip_points = trip_points
     conf.timing_corner = calc_mode
     conf.setup_statements = setup_statements
-    conf.time_resolution = time_resolution_seconds
+    conf.time_step = time_resolution_seconds
     conf.temperature = temperature
     conf.workingdir = workingdir
     conf.debug = args.debug
@@ -743,6 +758,10 @@ def main():
         elif isinstance(cell_type, SingleEdgeDFF):
             logger.info("Characterize single-edge triggered flip-flop.")
 
+            if related_pin_transition is None:
+                logger.error("Need to specify 'related-pin-transition' for the clock pin.")
+                exit(1)
+
             data_in_pin = 'D'
             data_out_pin = 'Q'
             clock_pin = 'CLK'
@@ -773,25 +792,26 @@ def main():
                 data_out_pin=data_out_pin,
                 clock_pin=clock_pin,
                 clock_edge_polarity=clock_edge_polarity,
-                clock_transition_time=1e-12,  # TODO
 
-                total_output_net_capacitance=output_capacitances,
-                input_net_transition=input_transition_times,
+                constrained_pin_transition=input_transition_times,
+                related_pin_transition=related_pin_transition,
+
+                output_load_capacitance=0,  # TODO
 
                 static_input_voltages=None  # TODO: Disable preset/clear/scan_en.
             )
 
             # Get the table indices.
             # TODO: get correct index/variable mapping from liberty file.
-            index_1 = result['total_output_net_capacitance'] * capacitance_unit_scale_factor
-            index_2 = result['input_net_transition'] * time_unit_scale_factor
+            index_1 = result['related_pin_transition'] * time_unit_scale_factor
+            index_2 = result['constrained_pin_transition'] * time_unit_scale_factor
             # TODO: remember all necessary templates and create template tables.
 
             input_pin_group = new_cell_group.get_group('pin', data_in_pin)
 
             clock_edge = 'rising' if clock_edge_polarity else 'falling'
 
-            for contraint_type in ['hold', 'setup']:
+            for constraint_type in ['hold', 'setup']:
                 # TODO: Create missing template tables.
                 table_template_name = f'{constraint_type}_template_{len(index_1)}x{len(index_2)}'
 
@@ -800,7 +820,7 @@ def main():
                 rise_constraint.set_array('index_2', index_2)
                 rise_constraint.set_array(
                     'values',
-                    result[f'{contraint_type}_rise_constraint'] * time_unit_scale_factor
+                    result[f'{constraint_type}_rise_constraint'] * time_unit_scale_factor
                 )
 
                 fall_constraint = Group('fall_constraint', args=[table_template_name])
@@ -808,21 +828,41 @@ def main():
                 fall_constraint.set_array('index_2', index_2)
                 fall_constraint.set_array(
                     'values',
-                    result[f'{contraint_type}_fall_constraint'] * time_unit_scale_factor
+                    result[f'{constraint_type}_fall_constraint'] * time_unit_scale_factor
                 )
 
                 timing_group = Group(
                     'timing',
                     attributes={
-                        'timing_type': [f'{contraint_type}_{clock_edge}'],
+                        'timing_type': [f'{constraint_type}_{clock_edge}'],
                         'related_pin': [EscapedString(clock_pin)]
                     },
                     groups=[rise_constraint, fall_constraint]
                 )
                 input_pin_group.groups.append(timing_group)
 
+            # TODO: Measure clock-to-output delays.
+
+            # output_pin_group = new_cell_group.get_group('pin', data_out_pin)
+            # related_pin = clock_pin
+            #
+            # timing_group = Group(
+            #     'timing',
+            #     attributes={
+            #         'timing_type': [f'rising_edge'],
+            #         'related_pin': [EscapedString(related_pin)]
+            #     },
+            #     groups=[cell_rise, cell_fall]
+            # )
+
         elif isinstance(cell_type, Latch):
             logger.info("Characterize latch.")
+
+            """
+            Characterization of latches is very similar to the one of flip-flops. Delays, hold and setup times
+            are measured relative to the de-activating edge of the clock signal instead of the active clock edge.
+            """
+
             assert False, "Characterization of latches is not yet supported."
         else:
             assert False, f"Unsupported cell type: {type(cell_type)}"
