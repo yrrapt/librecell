@@ -407,6 +407,9 @@ def main():
             t.drain_net = fix_case(t.drain_net)
             t.gate_net = fix_case(t.gate_net)
 
+        # Get pin ordering of spice circuit.
+        spice_ports = get_subcircuit_ports(netlist_file, cell_name)
+        logger.debug(f"Spice subcircuit ports: {spice_ports}")
         io_pins = net_util.get_io_pins(cell_pins)
 
         if len(transistors_abstract) == 0:
@@ -606,7 +609,7 @@ def main():
             output_functions_deduced = abstracted_circuit.outputs
 
             # Convert keys into strings (they are `sympy.Symbol`s now)
-            output_functions_deduced = {output.name: comb.function for output, comb in output_functions_deduced.items()}
+            output_functions_deduced = {str(output.name): comb.function for output, comb in output_functions_deduced.items()}
             output_functions_symbolic = output_functions_deduced
 
             # Log deduced output functions.
@@ -684,7 +687,7 @@ def main():
         cell_conf.supply_net = vdd_pin
         cell_conf.workingdir = cell_workingdir
         cell_conf.spice_netlist_file = netlist_file_table[cell_name]
-        cell_conf.spice_ports = cell_pins
+        cell_conf.spice_ports = spice_ports
 
         # Measure input pin capacitances.
         logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
@@ -723,7 +726,7 @@ def main():
                         logger.info("Timing arc: {} -> {}".format(related_pin, output_pin))
 
                     # Get timing sense of this arc.
-                    timing_sense = is_unate_in_xi(output_functions[output_pin], related_pin).name
+                    timing_sense = str(is_unate_in_xi(output_functions[output_pin], related_pin).name)
                     logger.info("Timing sense: {}".format(timing_sense))
 
                     result = characterize_comb_cell(
@@ -788,11 +791,14 @@ def main():
                 logger.error(f"Expect exactly one clock signal. Got {clock_signals}")
             clock_signal = clock_signals[0]
             # Find clock polarity:
-            clock_edge_polarity = clock_signal.subs({clock_signal: True}) == sympy.true
+            clock_edge_polarity = clock_signal.subs({clock_signal: True}) == True
+            clock_pin = str(clock_signal.name)
 
-            logger.debug(f"Clock signal: {clock_signal}")
+            assert isinstance(clock_pin, str)
+
+            logger.debug(f"Clock signal: {clock_pin}")
             logger.debug(f"Clock polarity: {'rising' if clock_edge_polarity else 'falling'}")
-            # print(cell_type)
+            print(cell_type)
             # exit(1)
 
             data_in_pin = 'D'
