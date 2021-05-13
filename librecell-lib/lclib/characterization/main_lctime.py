@@ -380,6 +380,19 @@ def main():
 
         # Get information on pins
         input_pins, output_pins, output_functions_user = liberty_util.get_pin_information(cell_group)
+        liberty_pins = set(input_pins) | set(output_pins)
+        # Create a lookup table to reconstruct lower/upper case letters.
+        # This is a workaround. The SPICE parser converts everything to uppercase.
+        case_lookup_table = {p.lower(): p for p in liberty_pins}
+        if len(case_lookup_table) != len(liberty_pins):
+            # It's not a one-to-one mapping!
+            logger.warning(f"Mixed lower case and upper case could cause trouble.")
+
+        def fix_case(pin: str) -> str:
+            """
+            Restore lower/upper case of signals that went lost during SPICE parsing.
+            """
+            return case_lookup_table.get(pin.lower(), pin)
 
         logger.info(f"Input pins as defined in liberty: {input_pins}")
         logger.info(f"Output pins as defined in liberty: {output_pins}")
@@ -388,11 +401,13 @@ def main():
         # TODO: Load all netlists at the beginning.
         logger.info('Load netlist: %s', netlist_file)
         transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name, force_lowercase=True)
-        io_pins = net_util.get_io_pins(cell_pins)
+        cell_pins = [fix_case(p) for p in cell_pins]
+        for t in transistors_abstract:
+            t.source_net = fix_case(t.source_net)
+            t.drain_net = fix_case(t.drain_net)
+            t.gate_net = fix_case(t.gate_net)
 
-        # Get pin ordering of spice circuit.
-        spice_ports = get_subcircuit_ports(netlist_file, cell_name)
-        logger.debug(f"Spice subcircuit ports: {spice_ports}")
+        io_pins = net_util.get_io_pins(cell_pins)
 
         if len(transistors_abstract) == 0:
             msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
@@ -415,10 +430,10 @@ def main():
         for pin in cell_group.get_groups("pin"):
             assert isinstance(pin, liberty_parser.Group)
             pin_name = pin.args[0]
-            all_liberty_pins.add(pin_name.lower())
+            all_liberty_pins.add(pin_name)
             complementary_pin = pin.get("complementary_pin")
             if complementary_pin is not None:
-                all_liberty_pins.add(complementary_pin.lower())
+                all_liberty_pins.add(complementary_pin)
         all_spice_pins = set(cell_pins)
         pins_not_in_spice = sorted(all_liberty_pins - all_spice_pins)
         if pins_not_in_spice:
@@ -455,7 +470,7 @@ def main():
             # Find pins that are defined in the SPICE circuit but are not inputs nor power.
             maybe_outputs = all_spice_pins - set(input_pins) - set(power_pins)
             logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
-            output_pins.append(maybe_outputs)
+            output_pins.extend(maybe_outputs)
 
         # Sanity check.
         if len(input_pins) == 0:
@@ -632,23 +647,23 @@ def main():
             pin_group.groups = [g for g in pin_group.groups if g.group_name != 'timing']
 
         # Create missing pin groups.
-        for pin in input_pins_non_inverted + output_pins:
-            pin_group = new_cell_group.get_group('pin', pin)
-            if pin_group is None:
-                pin_group = Group('pin', pin)
+        for pin in sorted(set(input_pins_non_inverted + output_pins)):
+            pin_group = new_cell_group.get_groups('pin', pin)
+            if not pin_group:
+                pin_group = Group('pin', args=[pin])
                 new_cell_group.groups.append(pin_group)
 
         # Set 'direction' attribute of input pins.
         for pin in input_pins_non_inverted:
             pin_group = new_cell_group.get_group('pin', pin)
             if 'direction' not in pin_group:
-                pin_group['direction'] = 'input'
+                pin_group['direction'] = ['input']
 
         # Set 'direction' attribute of output pins.
         for pin in output_pins:
             pin_group = new_cell_group.get_group('pin', pin)
             if 'direction' not in pin_group:
-                pin_group['direction'] = 'output'
+                pin_group['direction'] = ['output']
 
         # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
         for input_pin in input_pins_non_inverted:
@@ -669,7 +684,7 @@ def main():
         cell_conf.supply_net = vdd_pin
         cell_conf.workingdir = cell_workingdir
         cell_conf.spice_netlist_file = netlist_file_table[cell_name]
-        cell_conf.spice_ports = spice_ports
+        cell_conf.spice_ports = cell_pins
 
         # Measure input pin capacitances.
         logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
@@ -708,7 +723,7 @@ def main():
                         logger.info("Timing arc: {} -> {}".format(related_pin, output_pin))
 
                     # Get timing sense of this arc.
-                    timing_sense = is_unate_in_xi(output_functions[output_pin], related_pin).name.lower()
+                    timing_sense = is_unate_in_xi(output_functions[output_pin], related_pin).name
                     logger.info("Timing sense: {}".format(timing_sense))
 
                     result = characterize_comb_cell(
@@ -767,11 +782,21 @@ def main():
                 logger.error("Need to specify 'related-pin-transition' for the clock pin.")
                 exit(1)
 
+            # Find clock pin.
+            clock_signals = list(cell_type.clocked_on.atoms(sympy.Symbol))
+            if len(clock_signals) != 1:
+                logger.error(f"Expect exactly one clock signal. Got {clock_signals}")
+            clock_signal = clock_signals[0]
+            # Find clock polarity:
+            clock_edge_polarity = clock_signal.subs({clock_signal: True}) == sympy.true
+
+            logger.debug(f"Clock signal: {clock_signal}")
+            logger.debug(f"Clock polarity: {'rising' if clock_edge_polarity else 'falling'}")
+            # print(cell_type)
+            # exit(1)
+
             data_in_pin = 'D'
             data_out_pin = 'Q'
-            clock_pin = 'CLK'
-
-            clock_edge_polarity = True  # TODO: Move to cell_type.
 
             # min_clock_pulse = find_minimum_pulse_width(
             #     cell_config=cell_conf,

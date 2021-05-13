@@ -1316,6 +1316,7 @@ def measure_flip_flop_setup_hold(
                                                        )
         min_setup, min_hold = min_setup_plus_hold
         logger.info(f"Minimal setup+hold: setup = {min_setup}, hold = {min_hold}")
+
         # TODO: Store minimal setup+hold
 
     logger.debug("Measure unconditional minimal setup time.")
