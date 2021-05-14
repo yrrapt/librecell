@@ -137,7 +137,7 @@ def main():
                         metavar='DIFFERENTIAL_PATTERN',
                         type=str,
                         help='Specify differential inputs as "NonInverting,Inverting" tuples.'
-                             'The placeholder "%" can be used like "%_P,%_N" or "%,%_Diff", ...')
+                             'The placeholder "%%" can be used like "%%_P,%%_N" or "%%,%%_Diff", ...')
 
     parser.add_argument('--time-step', default=10e-12,
                         metavar='TIME_STEP',
