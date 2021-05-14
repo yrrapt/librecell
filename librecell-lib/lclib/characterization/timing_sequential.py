@@ -544,10 +544,11 @@ def get_clock_to_output_delay(
     assert t_clock_edge > 0
 
     # Generate the clock edge relative to which the delay will be measured.
+    clock_transition_time = clock_rise_time if rising_clock_edge else clock_fall_time
     clock_edge = StepWave(
         start_time=t_clock_edge,
         polarity=rising_clock_edge,
-        transition_time=clock_rise_time if rising_clock_edge else clock_fall_time,
+        transition_time=clock_transition_time,
         rise_threshold=trip_points.input_threshold_rise,
         fall_threshold=trip_points.input_threshold_fall
     )
@@ -619,7 +620,7 @@ def get_clock_to_output_delay(
     cmp = '>' if rising_data_edge else '<'
     assert t_clock_edge - period / 2 > 0
     breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
-                           f"when time > {t_clock_edge - period / 2}"
+                           f"when time > {t_clock_edge}"
 
     breakpoints = [breakpoint_statement]
 
@@ -687,14 +688,21 @@ def get_clock_to_output_delay(
         plt.close()
 
     # Start of interesting interval
-    samples_per_period = int(period / cfg.time_step)
-    start = int((t_clock_edge - period / 2) / period * samples_per_period)
-
+    start_time = t_clock_edge - period / 2
+    assert start_time < time[-1]
+    start_index = np.arange(len(time))[time > start_time][0]
     # Cut away initialization signals.
-    time = time[start:]
-    clock_voltage = clock_voltage[start:]
-    input_voltage = input_voltage[start:]
-    output_voltage = output_voltage[start:]
+    time = time[start_index:]
+    clock_voltage = clock_voltage[start_index:]
+    input_voltage = input_voltage[start_index:]
+    output_voltage = output_voltage[start_index:]
+
+    # import matplotlib.pyplot as plt
+    # plt.plot(time, clock_voltage, label='clock')
+    # plt.plot(time, input_voltage)
+    # plt.plot(time, output_voltage)
+    # plt.legend()
+    # plt.show()
 
     # Normalize voltages (divide by VDD).
     clock_voltage /= supply_voltage
