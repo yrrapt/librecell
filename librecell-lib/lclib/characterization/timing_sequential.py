@@ -547,7 +547,7 @@ def get_clock_to_output_delay(
     clock_edge = StepWave(
         start_time=t_clock_edge,
         polarity=rising_clock_edge,
-        transition_time=input_rise_time,
+        transition_time=clock_rise_time if rising_clock_edge else clock_fall_time,
         rise_threshold=trip_points.input_threshold_rise,
         fall_threshold=trip_points.input_threshold_fall
     )
