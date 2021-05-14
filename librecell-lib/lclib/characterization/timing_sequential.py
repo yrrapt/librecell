@@ -620,7 +620,7 @@ def get_clock_to_output_delay(
     cmp = '>' if rising_data_edge else '<'
     assert t_clock_edge - period / 2 > 0
     breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
-                           f"when time > {t_clock_edge}"
+                           f"when time > {t_clock_edge+clock_transition_time*0.05}"
 
     breakpoints = [breakpoint_statement]
 
@@ -1158,7 +1158,7 @@ def measure_flip_flop_setup_hold(
         # Check if we really found the root of `f`.
         logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
         assert np.allclose(0, delay_err, atol=10e-12), "Failed to find solution for minimal setup time." \
-                                                      " Try to decrease the simulation time step."
+                                                       " Try to decrease the simulation time step."
 
         return min_setup_time, delay_err + max_delay
 
@@ -1204,15 +1204,15 @@ def measure_flip_flop_setup_hold(
 
         assert b < 0
 
-        min_hold_time_indep = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
-        assert isinstance(min_hold_time_indep, float)
-        delay = f(min_hold_time_indep)
+        min_hold_time = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
+        assert isinstance(min_hold_time, float)
+        delay_err = f(min_hold_time)
         # Check if we really found the root of `f`.
-        logger.info(f"delay error = {delay}")
-        assert np.allclose(0, delay, atol=10e-12), "Failed to find solution for minimal hold time." \
-                                                  " Try to decrease the simulation time step."
+        logger.info(f"min_hold_time = {min_hold_time}, delay_err = {delay_err}, max_delay = {max_delay}")
+        assert np.allclose(0, delay_err, atol=10e-12), "Failed to find solution for minimal hold time." \
+                                                       " Try to decrease the simulation time step."
 
-        return min_hold_time_indep, f(min_hold_time_indep) + max_delay
+        return min_hold_time, f(min_hold_time) + max_delay
 
     def find_min_setup_plus_hold(rising_data_edge: bool, setup_guess: float, hold_guess: float) -> Tuple[float, float]:
         """

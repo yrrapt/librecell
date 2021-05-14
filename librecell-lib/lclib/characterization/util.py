@@ -189,7 +189,7 @@ def is_rising_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
     :param threshold: Decision threshold for HIGH/LOW value.
     :return: True iff the signal rises.
     """
-    return voltage[0] < threshold < voltage[-1]
+    return voltage[0] < threshold <= voltage[-1]
 
 
 def is_falling_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
@@ -198,7 +198,7 @@ def is_falling_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
     :param threshold: Decision threshold for HIGH/LOW value.
     :return: True iff the signal falls.
     """
-    return voltage[0] > threshold > voltage[-1]
+    return voltage[0] > threshold >= voltage[-1]
 
 
 def transition_time(voltage: np.ndarray, time: np.ndarray,
