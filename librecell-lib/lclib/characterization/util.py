@@ -374,8 +374,9 @@ def find_differential_inputs_by_pattern(patterns: Iterable[str], input_pins: Ite
                 inv_name = inverted_name_template.replace("%", basename)
                 if pin in differential_inputs:
                     # Sanity check.
-                    logger.error(f"Multiple matches for non-inverting input '{pin}'.")
-                    exit(1)
+                    msg = f"Multiple matches for non-inverting input '{pin}'."
+                    logger.error(msg)
+                    raise Exception(msg)
                 # Store the mapping.
                 differential_inputs[pin] = inv_name
 
