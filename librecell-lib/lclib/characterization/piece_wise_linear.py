@@ -87,9 +87,9 @@ class PieceWiseLinear:
         self.x = np.insert(self.x, index, x)
         self.y = np.insert(self.y, index, y)
 
-    def shifted(self, delta_t):
+    def delayed(self, delta_t):
         """
-        Get the same wave shifted by `delta_t`
+        Get the same wave shifted by `delta_t`.
         :param delta_t: Time shift.
         :return: f(t + delta_t)
         """

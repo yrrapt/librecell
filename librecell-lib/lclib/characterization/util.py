@@ -201,10 +201,16 @@ def is_falling_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
     return voltage[0] > threshold >= voltage[-1]
 
 
-def transition_time(voltage: np.ndarray, time: np.ndarray,
-                    threshold: float, n: int = -1,
-                    assert_one_crossing: bool = False) -> Optional[float]:
+def transition_time(voltage: np.ndarray,
+                    time: np.ndarray,
+                    threshold: float,
+                    n: int = -1,
+                    assert_one_crossing: bool = False,
+                    find_falling_edges: bool = True,
+                    find_rising_edges: bool = True) -> Optional[float]:
     """ Find time of the n-th event when the signal crosses the threshold.
+    :param find_rising_edges: Detect rising edges. Default is `True`.
+    :param find_falling_edges: Detect falling edges. Default is `True`.
     :param voltage: np.ndarray holding voltage values.
     :param time: np.ndarray holding time values.
     :param threshold:
@@ -220,6 +226,10 @@ def transition_time(voltage: np.ndarray, time: np.ndarray,
     # 1: crossing from negative to positive
     # -1: crossing from positive to negative
     transitions = np.sign(np.diff(np.sign(y_shifted)))
+    if not find_falling_edges:
+        transitions[transitions == -1] = 0 # Disable falling edges.
+    if not find_rising_edges:
+        transitions[transitions == 1] = 0 # Disable rising edges.
     index = np.arange(len(transitions))
     # Get indices of crossings.
     transition_indices = index[transitions != 0]

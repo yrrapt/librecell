@@ -609,7 +609,8 @@ def main():
             output_functions_deduced = abstracted_circuit.outputs
 
             # Convert keys into strings (they are `sympy.Symbol`s now)
-            output_functions_deduced = {str(output.name): comb.function for output, comb in output_functions_deduced.items()}
+            output_functions_deduced = {str(output.name): comb.function for output, comb in
+                                        output_functions_deduced.items()}
             output_functions_symbolic = output_functions_deduced
 
             # Log deduced output functions.
@@ -804,23 +805,26 @@ def main():
             data_in_pin = 'D'
             data_out_pin = 'Q'
 
-            # min_clock_pulse = find_minimum_pulse_width(
-            #     cell_config=cell_conf,
-            #     clock_input=clock_pin,
-            #     data_in=data_in_pin,
-            #     data_out=data_out_pin,
-            #     setup_time=100e-12,
-            #     clock_pulse_polarity=False,
-            #     rising_data_edge=False,
-            #     clock_rise_time=10e-12,  # TODO: Something fails when 0.
-            #     clock_fall_time=10e-12,
-            #     output_load_capacitances={'Q': 0},
-            #     clock_pulse_width_guess=100e-12,
-            #     max_simulation_time=1e-8,
-            #     static_input_voltages=None,
-            # )
-            # logger.info(f'min_clock_pulse = {min_clock_pulse}')
-            # exit()
+            for clock_pulse_polarity in [False, True]:
+                for rising_data_edge in [False, True]:
+                    min_clock_pulse_width, delay = find_minimum_pulse_width(
+                        cell_config=cell_conf,
+                        ff_clock_edge_polarity=clock_edge_polarity,
+                        clock_input=clock_pin,
+                        data_in=data_in_pin,
+                        data_out=data_out_pin,
+                        setup_time=500e-12,
+                        clock_pulse_polarity=clock_pulse_polarity,
+                        rising_data_edge=rising_data_edge,
+                        clock_rise_time=10e-12,  # TODO: Something fails when 0.
+                        clock_fall_time=10e-12,
+                        output_load_capacitances={data_out_pin: 0},
+                        clock_pulse_width_guess=100e-12,
+                        max_delay_estimation=1e-7,
+                        static_input_voltages=None,
+                    )
+                    logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
+            exit()
 
             result = characterize_flip_flop_setup_hold(
                 cell_conf=cell_conf,
