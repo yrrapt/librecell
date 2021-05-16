@@ -837,9 +837,9 @@ def main():
 
             # Write information on clock pin to liberty.
             clock_pin_group = new_cell_group.get_group('pin', clock_pin)
-            clock_pin_group['clock'] = ['true']
-            clock_pin_group['min_pulse_width_high'] = [min_pulse_width_high]
-            clock_pin_group['min_pulse_width_low'] = [min_pulse_width_low]
+            clock_pin_group['clock'] = 'true'
+            clock_pin_group['min_pulse_width_high'] = min_pulse_width_high
+            clock_pin_group['min_pulse_width_low'] = min_pulse_width_low
 
             # Find setup and hold times.
             result = characterize_flip_flop_setup_hold(
@@ -867,8 +867,8 @@ def main():
 
             clock_edge = 'rising' if clock_edge_polarity else 'falling'
 
+            # Add setup/hold information to the liberty pin group.
             for constraint_type in ['hold', 'setup']:
-                # TODO: Create missing template tables.
 
                 template_table = liberty_util.create_constraint_template_table(
                     new_library, constraint_type, len(index_1), len(index_2)
