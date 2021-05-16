@@ -158,7 +158,7 @@ def find_minimum_pulse_width(
     assert isinstance(cfg, CharacterizationConfig)
     workingdir = cell_config.workingdir
 
-    logger.info("Find minimum clock pulse width.")
+    logger.debug("Find minimum clock pulse width.")
 
     supply_voltage = cfg.supply_voltage
 
@@ -245,16 +245,10 @@ def find_minimum_pulse_width(
                 data_out: cfg.supply_voltage - input_signal(0)  # The inverse of data_in.
             }
 
-            # Simulate only until output reaches threshold.
-            # Compute stopping voltages of the output signal.
-            if rising_data_edge:
-                # Rising edge.
-                # Add a margin on the threshold to simulate a bit longer.
-                threshold = 0.98
-            else:
-                # Falling edge.
-                # Subtract a margin on the threshold to simulate a bit longer.
-                threshold = 0.02
+            # Simulate until output signal clearly reaches the other rail.
+            # Waiting until the signal reaches ~50% is not sufficient because
+            # it might be in a meta stable state.
+            threshold = 0.98 if rising_data_edge else 0.02
             cmp = ">" if rising_data_edge else "<"
             breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
                                    f"when time > {setup_time + time_between_pulses}"
@@ -309,7 +303,7 @@ def find_minimum_pulse_width(
             clock_voltage = clock_voltage[start_index:]
             output_voltage = output_voltage[start_index:]
 
-            if cfg.debug_plots or False:
+            if cfg.debug_plots:
                 # Plot data in debug mode.
                 logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
                 import matplotlib
@@ -323,7 +317,7 @@ def find_minimum_pulse_width(
                 plt.plot(time, supply_current, label='supply_current')
                 plt.legend()
                 plt.savefig(sim_plot_file)
-                plt.show()
+                # plt.show()
                 plt.close()
 
             # Normalize

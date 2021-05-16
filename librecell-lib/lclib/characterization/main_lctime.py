@@ -805,27 +805,43 @@ def main():
             data_in_pin = 'D'
             data_out_pin = 'Q'
 
-            for clock_pulse_polarity in [False, True]:
-                for rising_data_edge in [False, True]:
-                    min_clock_pulse_width, delay = find_minimum_pulse_width(
-                        cell_config=cell_conf,
-                        ff_clock_edge_polarity=clock_edge_polarity,
-                        clock_input=clock_pin,
-                        data_in=data_in_pin,
-                        data_out=data_out_pin,
-                        setup_time=500e-12,
-                        clock_pulse_polarity=clock_pulse_polarity,
-                        rising_data_edge=rising_data_edge,
-                        clock_rise_time=10e-12,  # TODO: Something fails when 0.
-                        clock_fall_time=10e-12,
-                        output_load_capacitances={data_out_pin: 0},
-                        clock_pulse_width_guess=100e-12,
-                        max_delay_estimation=1e-7,
-                        static_input_voltages=None,
-                    )
-                    logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
-            exit()
+            def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
+                min_clock_pulse_width, delay = find_minimum_pulse_width(
+                    cell_config=cell_conf,
+                    ff_clock_edge_polarity=clock_edge_polarity,
+                    clock_input=clock_pin,
+                    data_in=data_in_pin,
+                    data_out=data_out_pin,
+                    setup_time=1e-9,
+                    clock_pulse_polarity=clock_pulse_polarity,
+                    rising_data_edge=rising_data_edge,
+                    clock_rise_time=10e-12,  # TODO: Something fails when 0.
+                    clock_fall_time=10e-12,
+                    output_load_capacitances={data_out_pin: 0},
+                    clock_pulse_width_guess=100e-12,
+                    max_delay_estimation=1e-7,
+                    static_input_voltages=None,  # TODO: Add values for set/reset signals.
+                )
+                logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
+                return min_clock_pulse_width, delay
 
+            # Find the minimal clock pulse for negative and positive pulses.
+            # For each pulse type inspect rising and falling data edges.
+            logger.info(f"Find minimal clock pulse width ({clock_pin}).")
+            min_pulse_width_low, _delay = max(find_min_clock_pulse_width(False, False),
+                                              find_min_clock_pulse_width(False, True))
+            logger.info(f"min_pulse_width_low = {min_pulse_width_low} s")
+            min_pulse_width_high, _delay = max(find_min_clock_pulse_width(True, False),
+                                               find_min_clock_pulse_width(True, True))
+            logger.info(f"min_pulse_width_high = {min_pulse_width_high} s")
+
+            # Write information on clock pin to liberty.
+            clock_pin_group = new_cell_group.get_group('pin', clock_pin)
+            clock_pin_group['clock'] = ['true']
+            clock_pin_group['min_pulse_width_high'] = [min_pulse_width_high]
+            clock_pin_group['min_pulse_width_low'] = [min_pulse_width_low]
+
+            # Find setup and hold times.
             result = characterize_flip_flop_setup_hold(
                 cell_conf=cell_conf,
                 data_in_pin=data_in_pin,
