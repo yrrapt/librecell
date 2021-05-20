@@ -553,10 +553,12 @@ def main():
             power_down_function = ff_group.get_boolean_function('power_down_function')
 
             cell_type = SingleEdgeDFF()
+            cell_type.internal_state = sympy.Symbol(iq)
             cell_type.clocked_on = clocked_on
             cell_type.next_state = next_state
             cell_type.async_preset = preset
             cell_type.async_clear = clear
+            cell_type.outputs = {sympy.Symbol(name): function for name, function in output_functions_user.items()}
 
         elif latch_group:
             if len(latch_group) != 1:
@@ -819,114 +821,185 @@ def main():
                 logger.warning(f"Multiple possiblities found for disabling preset and clear. "
                                f"Take the first one ({preset_clear_input}).")
 
-            # Create static input voltages for preset/clear.
-            static_input_voltages = dict()
-            for pin, value in preset_clear_input.items():
-                value = value == True
-                voltage = cell_conf.global_conf.supply_voltage if value else 0.0
-                pin = str(pin)
-                logger.debug(f"{pin} = {voltage} V")
-                static_input_voltages[pin] = voltage
+            # Find all data pins that are relevant for the internal state of the flip-flop.
+            data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol))
+            logger.debug(f"Input pins relevant for internal state: {data_in_pins}")
 
-            data_in_pin = 'D'
+            assert isinstance(cell_type.internal_state,
+                              sympy.Symbol), "Internal flip-flop-state variable is not defined."
 
-            assert cell_type.data_out is not None, "No output pin found."
-            data_out_pin = cell_type.data_out
+            # Find all output pins that depend on the internal state.
+            data_out_pins: List[sympy.Symbol] = [name for name, formula in cell_type.outputs.items()
+                                                 if cell_type.internal_state in formula.atoms()
+                                                 ]
+            logger.debug(f"Output pins that depend on the internal state: {data_out_pins}")
 
-            def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
-                min_clock_pulse_width, delay = find_minimum_pulse_width(
-                    cell_config=cell_conf,
-                    ff_clock_edge_polarity=clock_edge_polarity,
-                    clock_input=clock_pin,
-                    data_in=data_in_pin,
-                    data_out=data_out_pin,
-                    setup_time=2e-9,  # Choose a reasonably large setup time.
-                    clock_pulse_polarity=clock_pulse_polarity,
-                    rising_data_edge=rising_data_edge,
-                    clock_rise_time=10e-12,  # TODO: Something fails when 0.
-                    clock_fall_time=10e-12,
-                    output_load_capacitances={data_out_pin: 0},
-                    clock_pulse_width_guess=100e-12,
-                    max_delay_estimation=1e-7,
-                    static_input_voltages=static_input_voltages,
-                )
-                logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
-                return min_clock_pulse_width, delay
+            # Characterize setup/hold for each data pin.
+            for i, data_in_pin in enumerate(data_in_pins):
+                logger.info(f"Measure constraints of pin {data_in_pin} ({i}/{len(data_in_pins)}).")
+                # Find all assignments of the other data pins such that the data pin controls
+                # the internal state.
+                # Find values of the other pins such that:
+                #  next_state(data_in_pin=0, other_pins) != next_state(data_in_pin=1, other_pins)
 
-            # Find the minimal clock pulse for negative and positive pulses.
-            # For each pulse type inspect rising and falling data edges.
-            logger.info(f"Find minimal clock pulse width ({clock_pin}).")
-            min_pulse_width_low, _delay = max(find_min_clock_pulse_width(False, False),
-                                              find_min_clock_pulse_width(False, True))
-            logger.info(f"min_pulse_width_low = {min_pulse_width_low} s")
-            min_pulse_width_high, _delay = max(find_min_clock_pulse_width(True, False),
-                                               find_min_clock_pulse_width(True, True))
-            logger.info(f"min_pulse_width_high = {min_pulse_width_high} s")
+                next_state_0 = cell_type.next_state.subs({data_in_pin: False})
+                next_state_1 = cell_type.next_state.subs({data_in_pin: True})
+                models = list(satisfiable(next_state_0 ^ next_state_1, all_models=True))
 
-            # Write information on clock pin to liberty.
-            clock_pin_group = new_cell_group.get_group('pin', clock_pin)
-            clock_pin_group['clock'] = 'true'
-            clock_pin_group['min_pulse_width_high'] = min_pulse_width_high
-            clock_pin_group['min_pulse_width_low'] = min_pulse_width_low
+                for other_pin_values in models:
+                    # Express the assignment of the other pins as a boolean formula.
+                    # This will also be used as a 'when' statement in the liberty file.
+                    when_other_inputs = sympy.And(*(pin if value else ~pin for pin, value in other_pin_values.items()))
+                    logger.info(f"Measure constraints of pin {data_in_pin} when {when_other_inputs}.")
 
-            # Find setup and hold times.
-            result = characterize_flip_flop_setup_hold(
-                cell_conf=cell_conf,
-                data_in_pin=data_in_pin,
-                data_out_pin=data_out_pin,
-                clock_pin=clock_pin,
-                clock_edge_polarity=clock_edge_polarity,
+                    # Set static voltages of other input pins.
+                    other_pin_values.update(preset_clear_input)
+                    static_input_voltages = dict()
+                    for pin, value in other_pin_values.items():
+                        if not isinstance(pin, sympy.Symbol):
+                            continue
+                        value = value == True
+                        voltage = cell_conf.global_conf.supply_voltage if value else 0.0
+                        pin = str(pin)
+                        logger.debug(f"{pin} = {voltage} V")
+                        static_input_voltages[pin] = voltage
 
-                constrained_pin_transition=input_transition_times,
-                related_pin_transition=related_pin_transition,
+                    # Find an output pin such that the internal state is observable.
+                    observer_outputs = []  # Output pins that can observe the internal memory state.
+                    for output_pin, function in cell_type.outputs.items():
+                        # Substitute with constant input pins.
+                        function = function.subs(other_pin_values)
 
-                output_load_capacitance=0,  # TODO: Is it accurate to assume zero output load?
+                        # Compute the output for all values of the internal state and make sure it is different.
+                        function0 = function.subs({cell_type.internal_state: False})
+                        function1 = function.subs({cell_type.internal_state: True})
+                        is_observable = not satisfiable(~(function0 ^ function1))  # Test if function0 != function1
 
-                static_input_voltages=static_input_voltages
-            )
+                        logger.debug(f"Internal state {cell_type.internal_state} observable from output {output_pin} "
+                                     f"when {other_pin_values}: {is_observable}")
 
-            # Get the table indices.
-            # TODO: get correct index/variable mapping from liberty file.
-            index_1 = result['related_pin_transition'] * time_unit_scale_factor
-            index_2 = result['constrained_pin_transition'] * time_unit_scale_factor
-            # TODO: remember all necessary templates and create template tables.
+                        if is_observable:
+                            observer_outputs.append(output_pin)
 
-            input_pin_group = new_cell_group.get_group('pin', data_in_pin)
+                    logger.debug(f"Internal state is observable from: {observer_outputs}")
 
-            clock_edge = 'rising' if clock_edge_polarity else 'falling'
+                    if not observer_outputs:
+                        # When the internal state is not observable we cannot measure constraints.
+                        # Skip this combination.
+                        logger.warning(
+                            f"Internal memory state {cell_type.internal_state} is not observable from any output "
+                            f"when {other_pin_values}. Skipping input combination.")
+                        continue
 
-            # Add setup/hold information to the liberty pin group.
-            for constraint_type in ['hold', 'setup']:
-                template_table = liberty_util.create_constraint_template_table(
-                    new_library, constraint_type, len(index_1), len(index_2)
-                )
-                table_template_name = template_table.args[0]
+                    # Take just one of the observer output pins.
+                    data_out_pin = observer_outputs[0]
+                    logger.debug(f"Output pin: {data_out_pin}")
 
-                rise_constraint = Group('rise_constraint', args=[table_template_name])
-                rise_constraint.set_array('index_1', index_1)
-                rise_constraint.set_array('index_2', index_2)
-                rise_constraint.set_array(
-                    'values',
-                    result[f'{constraint_type}_rise_constraint'] * time_unit_scale_factor
-                )
+                    # == Start characterization ==
 
-                fall_constraint = Group('fall_constraint', args=[table_template_name])
-                fall_constraint.set_array('index_1', index_1)
-                fall_constraint.set_array('index_2', index_2)
-                fall_constraint.set_array(
-                    'values',
-                    result[f'{constraint_type}_fall_constraint'] * time_unit_scale_factor
-                )
+                    # Convert from sympy.Symbol to string.
+                    data_in_pin = str(data_in_pin)
+                    data_out_pin = str(data_out_pin)
 
-                timing_group = Group(
-                    'timing',
-                    attributes={
-                        'timing_type': [f'{constraint_type}_{clock_edge}'],
-                        'related_pin': [EscapedString(clock_pin)]
-                    },
-                    groups=[rise_constraint, fall_constraint]
-                )
-                input_pin_group.groups.append(timing_group)
+                    def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
+                        min_clock_pulse_width, delay = find_minimum_pulse_width(
+                            cell_config=cell_conf,
+                            ff_clock_edge_polarity=clock_edge_polarity,
+                            clock_input=clock_pin,
+                            data_in=data_in_pin,
+                            data_out=data_out_pin,
+                            setup_time=2e-9,  # Choose a reasonably large setup time.
+                            clock_pulse_polarity=clock_pulse_polarity,
+                            rising_data_edge=rising_data_edge,
+                            clock_rise_time=10e-12,  # TODO: Something fails when 0.
+                            clock_fall_time=10e-12,
+                            output_load_capacitances={data_out_pin: 0},
+                            clock_pulse_width_guess=100e-12,
+                            max_delay_estimation=1e-7,
+                            static_input_voltages=static_input_voltages,
+                        )
+                        logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
+                        return min_clock_pulse_width, delay
+
+                    # Find the minimal clock pulse for negative and positive pulses.
+                    # For each pulse type inspect rising and falling data edges.
+                    logger.info(f"Find minimal clock pulse width ({clock_pin}).")
+                    min_pulse_width_low, _delay = max(find_min_clock_pulse_width(False, False),
+                                                      find_min_clock_pulse_width(False, True))
+                    logger.info(f"min_pulse_width_low = {min_pulse_width_low} s")
+                    min_pulse_width_high, _delay = max(find_min_clock_pulse_width(True, False),
+                                                       find_min_clock_pulse_width(True, True))
+                    logger.info(f"min_pulse_width_high = {min_pulse_width_high} s")
+
+                    # Write information on clock pin to liberty.
+                    # TODO: minimum pulse width is potentiall computed for many different input combinations. Take min/max of them! (Now just the last one will be stored)
+                    clock_pin_group = new_cell_group.get_group('pin', clock_pin)
+                    clock_pin_group['clock'] = 'true'
+                    clock_pin_group['min_pulse_width_high'] = min_pulse_width_high
+                    clock_pin_group['min_pulse_width_low'] = min_pulse_width_low
+
+                    # Find setup and hold times.
+                    result = characterize_flip_flop_setup_hold(
+                        cell_conf=cell_conf,
+                        data_in_pin=data_in_pin,
+                        data_out_pin=data_out_pin,
+                        clock_pin=clock_pin,
+                        clock_edge_polarity=clock_edge_polarity,
+
+                        constrained_pin_transition=input_transition_times,
+                        related_pin_transition=related_pin_transition,
+
+                        output_load_capacitance=0,  # TODO: Is it accurate to assume zero output load?
+
+                        static_input_voltages=static_input_voltages
+                    )
+
+                    # Get the table indices.
+                    # TODO: get correct index/variable mapping from liberty file.
+                    index_1 = result['related_pin_transition'] * time_unit_scale_factor
+                    index_2 = result['constrained_pin_transition'] * time_unit_scale_factor
+                    # TODO: remember all necessary templates and create template tables.
+
+                    input_pin_group = new_cell_group.get_group('pin', data_in_pin)
+
+                    clock_edge = 'rising' if clock_edge_polarity else 'falling'
+
+                    # Add setup/hold information to the liberty pin group.
+                    for constraint_type in ['hold', 'setup']:
+                        template_table = liberty_util.create_constraint_template_table(
+                            new_library, constraint_type, len(index_1), len(index_2)
+                        )
+                        table_template_name = template_table.args[0]
+
+                        rise_constraint = Group('rise_constraint', args=[table_template_name])
+                        rise_constraint.set_array('index_1', index_1)
+                        rise_constraint.set_array('index_2', index_2)
+                        rise_constraint.set_array(
+                            'values',
+                            result[f'{constraint_type}_rise_constraint'] * time_unit_scale_factor
+                        )
+
+                        fall_constraint = Group('fall_constraint', args=[table_template_name])
+                        fall_constraint.set_array('index_1', index_1)
+                        fall_constraint.set_array('index_2', index_2)
+                        fall_constraint.set_array(
+                            'values',
+                            result[f'{constraint_type}_fall_constraint'] * time_unit_scale_factor
+                        )
+
+                        timing_group = Group(
+                            'timing',
+                            attributes={
+                                'timing_type': [f'{constraint_type}_{clock_edge}'],
+                                'related_pin': [EscapedString(clock_pin)]
+                            },
+                            groups=[rise_constraint, fall_constraint]
+                        )
+
+                        if len(when_other_inputs.atoms(sympy.Symbol)) > 0:
+                            timing_group.set_boolean_function('when', when_other_inputs)
+
+                        input_pin_group.groups.append(timing_group)
 
             # TODO: Measure clock-to-output delays.
 
