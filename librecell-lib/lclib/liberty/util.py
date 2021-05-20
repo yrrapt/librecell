@@ -100,7 +100,7 @@ def create_table_template_if_not_exists(library: Group,
 
     full_name = f"{name}_template_{n}x{m}"
 
-    logger.info(f"Create table template: {table_type}({full_name})")
+    logger.debug(f"Create table template: {table_type}({full_name})")
 
     # Test if table already exists.
     table = library.get_groups(table_type, argument=full_name)

@@ -817,7 +817,7 @@ def main():
             for model in no_preset_no_clear:
                 logger.info(f"FF in normal operation mode when: {model}")
             preset_clear_input = no_preset_no_clear[0]
-            if len(no_preset_no_clear) > 0:
+            if len(no_preset_no_clear) > 1:
                 logger.warning(f"Multiple possiblities found for disabling preset and clear. "
                                f"Take the first one ({preset_clear_input}).")
 
