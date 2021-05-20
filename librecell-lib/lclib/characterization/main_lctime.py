@@ -590,8 +590,7 @@ def main():
                 detected_cell_type = seq_recognition.extract_sequential_circuit(abstracted_circuit)
 
                 if detected_cell_type:
-                    print("Detected sequential circuit:")
-                    print(detected_cell_type)
+                    logger.info(f"Detected sequential circuit:\n{detected_cell_type}")
 
             else:
                 logger.info("Detected purely combinational circuit.")
@@ -805,8 +804,6 @@ def main():
 
             logger.info(f"Clock signal: {clock_pin}")
             logger.info(f"Clock polarity: {'rising' if clock_edge_polarity else 'falling'}")
-            print(cell_type)
-            # exit(1)
 
             # Find preset/clear signals.
             # Make sure preset/clear are disabled.

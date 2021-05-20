@@ -565,7 +565,8 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
                           pins_of_interest: Set,
                           constant_input_pins: Dict[Any, bool] = None,
                           differential_inputs: Dict[str, str] = None,
-                          user_input_nets: Set = None
+                          user_input_nets: Set = None,
+                          debug: bool = False
                           ) -> AbstractCircuit:
     """
     Analyze a CMOS transistor network and find boolean expressions for the output signals of the `pins_of_interest`.
@@ -585,6 +586,7 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         Some inputs cannot automatically be found and must be provided by the user.
         Input nets that connect not only to transistor gates but also source or drains need to be specified manually.
         This can happen for cells containing transmission gates.
+    :param debug: More debugging output.
     :return: (Dict['output pin', boolean formula], Dict['output pin', Memory])
     """
     #
@@ -637,13 +639,14 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     # print('conductivity_conditions = ', conductivity_conditions)
 
     # Pretty-print the conductivity conditions.
-    print()
-    print('Conductivity conditions')
-    for pin_a, conditions in conductivity_conditions.items():
-        print(' ', pin_a)
-        for pin_b, condition in conditions.items():
-            print('  |-', pin_b, 'when', condition)
-    print()
+    if debug:
+        print()
+        print('Conductivity conditions')
+        for pin_a, conditions in conductivity_conditions.items():
+            print(' ', pin_a)
+            for pin_b, condition in conditions.items():
+                print('  |-', pin_b, 'when', condition)
+        print()
 
     # Substitute inverting inputs by the inverse of the non-inverting input.
     differential_substitution = {
@@ -713,17 +716,17 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     short_circuit_conditions = {k: simplify_logic(formulas_high[k] & formulas_low[k])
                                 for k in formulas_high.keys()}
 
-    print("Complementary nets:")
+    logger.debug("Complementary nets:")
     for net, f in complementary_formulas.items():
-        print(' ', net, ':', f)
+        logger.debug(' ', net, ':', f)
 
-    print("High impedance conditions:")
+    logger.debug("High impedance conditions:")
     for net, condition in high_impedance_conditions.items():
-        print(' ', net, ':', condition)
+        logger.debug(' ', net, ':', condition)
 
-    print("Short circuit conditions:")
+    logger.debug("Short circuit conditions:")
     for net, condition in short_circuit_conditions.items():
-        print(' ', net, ':', condition)
+        logger.debug(' ', net, ':', condition)
 
     # Create dependency graph to detect feedback loops.
     dependency_graph_high = _formula_dependency_graph(formulas_high)
@@ -775,7 +778,6 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         # print(f"write_condition = {write_condition}")
         oscillation_condition = dn
 
-        debug = True
         if debug:
             # Find expressions for the memory output when the write condition is met.
             # Find all variable assignments such that the write condition is met.
@@ -791,16 +793,17 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
                 data = simplify_logic(memory_output_resolved.subs(model))
                 mem_data.append((model, data))
 
-            # Pretty print write conditions and corresponding write data.
-            if len(mem_data) > 0:
-                print()
-                print("Write data for all write conditions:")
-                model, _ = mem_data[0]
-                vars = list(model.keys())
-                print("\t", "\t".join((str(v) for v in vars)), "\t:", f"data ({memory_output_net})")
-                for model, data in mem_data:
-                    print("\t", "\t".join((str(model[var]) for var in vars)), "\t:", data)
-                print()
+            if debug:
+                # Pretty print write conditions and corresponding write data.
+                if len(mem_data) > 0:
+                    print()
+                    print("Write data for all write conditions:")
+                    model, _ = mem_data[0]
+                    vars = list(model.keys())
+                    print("\t", "\t".join((str(v) for v in vars)), "\t:", f"data ({memory_output_net})")
+                    for model, data in mem_data:
+                        print("\t", "\t".join((str(model[var]) for var in vars)), "\t:", data)
+                    print()
 
         write_data = simplify_with_assumption(write_condition, memory_output_resolved)
         logger.debug(f"write_data = {write_data}")
