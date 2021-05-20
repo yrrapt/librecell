@@ -694,7 +694,7 @@ def main():
         cell_conf.spice_ports = spice_ports
 
         # Measure input pin capacitances.
-        if False:
+        if True:
             logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
             for input_pin in input_pins_non_inverted:
                 # Input capacitances are not measured for the inverting inputs of differential pairs.
