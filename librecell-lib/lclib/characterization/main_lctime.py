@@ -336,16 +336,16 @@ def main():
     else:
         related_pin_transition = None
 
-    logger.info(f"Output capacitances [pF]: {output_capacitances * 1e12}")
-    logger.info(f"Input slew times [ns]: {input_transition_times * 1e9}")
+    logger.info(f"Output capacitances [pF]: {output_capacitances * capacitance_unit_scale_factor}")
+    logger.info(f"Input slew times [ns]: {input_transition_times * time_unit_scale_factor}")
     if related_pin_transition is not None:
-        logger.info(f"Related pin transition times [ns]: {related_pin_transition * 1e9}")
+        logger.info(f"Related pin transition times [ns]: {related_pin_transition * time_unit_scale_factor}")
 
     # TODO: Make time resolution parametrizable.
     time_resolution_seconds = float(args.time_step)
-    logger.info("Time resolution = {}s".format(time_resolution_seconds))
+    logger.info(f"Time resolution = {time_resolution_seconds}s")
     if time_resolution_seconds <= 0:
-        logger.error('Time steop must be larger than zero.')
+        logger.error('Time step must be larger than zero.')
         exit(1)
     if time_resolution_seconds > 1e-9:
         logger.warning(f"Timestep is larger than 1ns: {time_resolution_seconds}s")
@@ -918,7 +918,7 @@ def main():
                             max_delay_estimation=1e-7,
                             static_input_voltages=static_input_voltages,
                         )
-                        logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
+                        logger.debug(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
                         return min_clock_pulse_width, delay
 
                     # Find the minimal clock pulse for negative and positive pulses.

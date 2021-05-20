@@ -131,7 +131,7 @@ def find_minimum_pulse_width(
         output_load_capacitances: Dict[str, float] = None,
         max_delay_estimation: float = 1e-7,
         static_input_voltages: Dict[str, float] = None,
-) -> float:
+) -> Tuple[float, float]:
     """Find the minimum clock pulse width such that the data is sampled.
 
     :param ff_clock_edge_polarity: Type of active clock edge. Rising edge: True, Falling edge: False.
@@ -151,7 +151,8 @@ def find_minimum_pulse_width(
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
     :param static_input_voltages: Static input voltages.
         This can be used to set the voltage of static input signals such as scan-enable.
-    :return: Returns the minimal clock pulse width such that the data signal is sampled.
+    :return: Returns a tuple of the minimal clock pulse width such that the data signal is sampled and the corresponding delay.
+        (min clock pulse width, clock-to-output delay)
     """
     assert isinstance(cell_config, CellConfig)
     cfg = cell_config.global_conf
@@ -435,8 +436,9 @@ def find_minimum_pulse_width(
     min_pulse_width = optimize.brentq(f, lower_bound, upper_bound)
     assert isinstance(min_pulse_width, float)
 
-    logger.info(f"Minimal clock pulse: {min_pulse_width}s")
+    logger.debug(f"Minimal clock pulse: {min_pulse_width}s")
     corresponding_delay = delay_function(min_pulse_width, delay_estimation)
+    assert isinstance(corresponding_delay, float)
     logger.debug(f"Corresponding delay: {corresponding_delay}")
     assert not math.isinf(corresponding_delay)
 
@@ -811,58 +813,6 @@ def get_clock_to_output_delay(
         return delay
 
 
-def test_plot_flipflop_setup_behavior():
-    trip_points = TripPoints(
-        input_threshold_rise=0.5,
-        input_threshold_fall=0.5,
-        output_threshold_rise=0.5,
-        output_threshold_fall=0.5,
-
-        slew_lower_threshold_rise=0.2,
-        slew_upper_threshold_rise=0.8,
-        slew_lower_threshold_fall=0.2,
-        slew_upper_threshold_fall=0.8
-    )
-
-    subckt_name = 'DFFPOSX1'
-
-    include_file = f'../../test_data/freepdk45/netlists_pex/{subckt_name}.pex.netlist'
-    model_file = f'../../test_data/freepdk45/gpdk45nm.m'
-
-    data_in = 'D'
-    clock = 'CLK'
-    data_out = 'Q'
-    ground = 'GND'
-    supply = 'VDD'
-
-    input_rise_time = 0.010e-9
-    input_fall_time = 0.010e-9
-
-    temperature = 27
-    logger.info(f"Temperature: {temperature} C")
-
-    output_load_capacitances = {data_out: 0.06e-12}
-    logger.info(f"Output load capacitance: {output_load_capacitances} [F]")
-
-    time_step = 10e-12
-    logger.info(f"Time step: {time_step} s")
-
-    # TODO: find appropriate simulation_duration_hint
-    simulation_duration_hint = 250e-12
-
-    # SPICE include files.
-    includes = [include_file, model_file]
-    includes = [f".INCLUDE {i}" for i in includes]
-
-    vdd = 1.1
-    logger.info(f"Supply voltage: {vdd} V")
-
-    # Voltage sources for input signals.
-    # input_sources = [circuit.V('in_{}'.format(inp), inp, circuit.gnd, 'dc 0 external') for inp in inputs]
-
-    pos_edge_flipflop = True
-
-
 def characterize_flip_flop_setup_hold(
         cell_conf: CellConfig,
 
@@ -1016,7 +966,7 @@ def measure_flip_flop_setup_hold(
     clock_rise_time = clock_transition_time
     clock_fall_time = clock_transition_time
 
-    logger.info(f"Output load capacitance: {output_load_capacitances} [F]")
+    logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
 
     # SPICE include files.
     includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
@@ -1109,7 +1059,7 @@ def measure_flip_flop_setup_hold(
 
             prev_delay = delay
 
-        logger.info(f"Minimum clock to data delay: {delay}. "
+        logger.debug(f"Minimum clock to data delay: {delay}. "
                     f"(Iterations = {next(ctr)}, "
                     f"setup_time = {setup_time}, hold_time = {hold_time}, "
                     f"absolute error = {diff})")
@@ -1121,7 +1071,7 @@ def measure_flip_flop_setup_hold(
     # Find the minimum data delays.
     # They are used to determine the target data delays when finding
     # setup and hold times.
-    logger.info("Find minimal propagation delays.")
+    logger.debug("Find minimal propagation delays.")
     tolerance = 1e-12
     min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge=True, abstol=tolerance)
     min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge=False, abstol=tolerance)
@@ -1132,7 +1082,7 @@ def measure_flip_flop_setup_hold(
     logger.debug(f"setup_guess_rise = {setup_guess_rise}")
     logger.debug(f"hold_guess_rise = {hold_guess_rise}")
 
-    logger.info(f"max. allowed clock-to-output push-out time = {cfg.max_pushout_time}")
+    logger.debug(f"max. allowed clock-to-output push-out time = {cfg.max_pushout_time}")
 
     # Define flip flop failure: FF fails if delay is larger than max_accepted_{rise,fall}_delay
     max_rise_delay = min_rise_delay + cfg.max_pushout_time
@@ -1168,7 +1118,7 @@ def measure_flip_flop_setup_hold(
         max_delay = max_rise_delay if rising_data_edge else max_fall_delay
         setup_guess = setup_guess_rise if rising_data_edge else setup_guess_fall
 
-        logger.info(f"Find min. setup time. Hold time = {hold_time}. rising_data_edge = {rising_data_edge}")
+        logger.debug(f"Find min. setup time. Hold time = {hold_time}. rising_data_edge = {rising_data_edge}")
 
         def f(setup_time: float) -> float:
             """
@@ -1224,7 +1174,7 @@ def measure_flip_flop_setup_hold(
 
         delay_err = f(min_setup_time)
         # Check if we really found the root of `f`.
-        logger.info(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
+        logger.debug(f"min_setup_time = {min_setup_time}, delay_err = {delay_err}, max_delay = {max_delay}")
         assert np.allclose(0, delay_err, atol=10e-12), "Failed to find solution for minimal setup time." \
                                                        " Try to decrease the simulation time step."
 
@@ -1242,7 +1192,7 @@ def measure_flip_flop_setup_hold(
         max_delay = max_rise_delay if rising_data_edge else max_fall_delay
         hold_guess = hold_guess_rise if rising_data_edge else hold_guess_fall
 
-        logger.info(f"Find min. hold time. Setup time = {setup_time}. rising_data_edge = {rising_data_edge}")
+        logger.debug(f"Find min. hold time. Setup time = {setup_time}. rising_data_edge = {rising_data_edge}")
 
         def f(hold_time: float) -> float:
             """
@@ -1276,7 +1226,7 @@ def measure_flip_flop_setup_hold(
         assert isinstance(min_hold_time, float)
         delay_err = f(min_hold_time)
         # Check if we really found the root of `f`.
-        logger.info(f"min_hold_time = {min_hold_time}, delay_err = {delay_err}, max_delay = {max_delay}")
+        logger.debug(f"min_hold_time = {min_hold_time}, delay_err = {delay_err}, max_delay = {max_delay}")
         assert np.allclose(0, delay_err, atol=10e-12), "Failed to find solution for minimal hold time." \
                                                        " Try to decrease the simulation time step."
 
@@ -1300,7 +1250,7 @@ def measure_flip_flop_setup_hold(
         """
         max_delay = max_rise_delay if rising_data_edge else max_fall_delay
 
-        logger.info(f"Find min. setup plus hold time."
+        logger.debug(f"Find min. setup plus hold time."
                     f"Initial setup = {setup_guess}, initial hold = {hold_guess}. "
                     f"rising_data_edge = {rising_data_edge}")
 
@@ -1395,7 +1345,7 @@ def measure_flip_flop_setup_hold(
 
         # TODO: Store minimal setup+hold
 
-    logger.debug("Measure unconditional minimal setup time.")
+    logger.info("Measure unconditional minimal setup time.")
 
     """
     The unconditional minimal setup time is the minimal setup time that can be achieved
@@ -1413,7 +1363,7 @@ def measure_flip_flop_setup_hold(
     logger.info(f"max delays (rise): {min_setup_delay_rise}")
     logger.info(f"max delays (fall): {min_setup_delay_fall}")
 
-    logger.debug("Measure unconditional minimal hold time.")
+    logger.info("Measure unconditional minimal hold time.")
     """
     The unconditional minimal hold time is the minimal hold time that can be achieved
     when the setup time is infinitely long, i.e. when the input data signal is already stable
@@ -1431,6 +1381,7 @@ def measure_flip_flop_setup_hold(
     logger.info(f"max delays (fall): {min_hold_delay_fall}")
 
     # Find dependent setup time.
+    logger.info("Measure dependent minimal hold time.")
     dependent_setup_time_rise, dependent_setup_delay_rise = \
         find_min_setup(rising_data_edge=True,
                        hold_time=min_hold_time_uncond_rise + hold_margin)
@@ -1440,6 +1391,7 @@ def measure_flip_flop_setup_hold(
                        hold_time=min_hold_time_uncond_fall + hold_margin)
 
     # Find dependent hold time.
+    logger.info("Measure dependent minimal hold time.")
     dependent_hold_time_rise, dependent_hold_delay_rise = \
         find_min_hold(rising_data_edge=True,
                       setup_time=min_setup_time_uncond_rise + setup_margin)
