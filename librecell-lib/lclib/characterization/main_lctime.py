@@ -912,7 +912,7 @@ def main():
                             clock_pulse_polarity=clock_pulse_polarity,
                             rising_data_edge=rising_data_edge,
                             clock_rise_time=10e-12,  # TODO: Something fails when 0.
-                            clock_fall_time=10e-12,
+                            clock_fall_time=10e-12,  # TODO: How to choose this?
                             output_load_capacitances={data_out_pin: 0},
                             clock_pulse_width_guess=100e-12,
                             max_delay_estimation=1e-7,
@@ -932,7 +932,7 @@ def main():
                     logger.info(f"min_pulse_width_high = {min_pulse_width_high} s")
 
                     # Write information on clock pin to liberty.
-                    # TODO: minimum pulse width is potentiall computed for many different input combinations. Take min/max of them! (Now just the last one will be stored)
+                    # TODO: minimum pulse width is potentially computed for many different input combinations. Take min/max of them! (Now just the last one will be stored)
                     clock_pin_group = new_cell_group.get_group('pin', clock_pin)
                     clock_pin_group['clock'] = 'true'
                     clock_pin_group['min_pulse_width_high'] = min_pulse_width_high
