@@ -30,7 +30,7 @@ import argparse
 from copy import deepcopy
 from PySpice.Unit import *
 from lccommon import net_util
-from lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
+from lccommon.net_util import load_transistor_netlist, load_netlist, get_subcircuit, extract_transistors
 import networkx as nx
 import sympy
 import re
@@ -50,7 +50,8 @@ def main():
         description='Find boolean formulas that describe the behaviour of a CMOS circuit.',
         epilog='Example: sp2bool --spice INVX1.sp --cell INVX1')
 
-    parser.add_argument('--cell', required=True, metavar='CELL_NAME', type=str, help='Cell name.')
+    parser.add_argument('--cell', required=False, nargs="+", metavar='CELL_NAMES', type=str,
+                        help='Cell names. If none is specified all cells will be analyzed.')
 
     parser.add_argument('--spice', required=True, metavar='SPICE', type=str,
                         help='SPICE netlist containing a subcircuit with the same name as the cell.')
@@ -82,85 +83,101 @@ def main():
 
     logging.basicConfig(format=log_format, level=log_level)
 
-    cell_name = args.cell
+    if args.cell:
+        cell_names = set(args.cell)
+    else:
+        cell_names = None
 
     # Load netlist of cell
     netlist_path = args.spice
     logger.info('Load netlist: %s', netlist_path)
-    transistors_abstract, cell_pins = load_transistor_netlist(netlist_path, cell_name)
-    io_pins = net_util.get_io_pins(cell_pins)
+    netlist = load_netlist(netlist_path)
 
-    logger.info(f"Cell pins: {cell_pins}")
-    print(transistors_abstract)
+    if cell_names is None:
+        # Process all circuits if no names were given.
+        cell_names = [c.name for c in netlist.each_circuit()]
 
-    # Detect power pins.
-    # TODO: don't decide based only on net name.
-    power_pins = [p for p in cell_pins if net_util.is_power_net(p)]
-    assert len(power_pins) == 2, "Expected to have 2 power pins."
-    vdd_pins = [p for p in power_pins if net_util.is_supply_net(p)]
-    gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
-    assert len(vdd_pins) == 1, "Expected to find one VDD pin but found: {}".format(vdd_pins)
-    assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
-    vdd_pin = vdd_pins[0]
-    gnd_pin = gnd_pins[0]
+    for cell_name in cell_names:
+        circuit = netlist.circuit_by_name(cell_name)
+        if circuit is None:
+            logger.error(f"No such circuit: {cell_name}")
+            exit(1)
+        if cell_names is None or cell_name in cell_names:
+            logger.info(f"Analyze {cell_name}")
+            transistors_abstract, cell_pins = extract_transistors(circuit)
+            io_pins = net_util.get_io_pins(cell_pins)
 
-    logger.info(f"Supply net: {vdd_pin}")
-    logger.info(f"Ground net: {gnd_pin}")
+            logger.info(f"Cell pins: {cell_pins}")
+            #print(transistors_abstract)
 
-    # Match differential inputs.
-    if args.diff is not None:
-        differential_inputs = util.find_differential_inputs_by_pattern(args.diff, io_pins)
-    else:
-        differential_inputs = dict()
+            # Detect power pins.
+            # TODO: don't decide based only on net name.
+            power_pins = [p for p in cell_pins if net_util.is_power_net(p)]
+            assert len(power_pins) == 2, "Expected to have 2 power pins."
+            vdd_pins = [p for p in power_pins if net_util.is_supply_net(p)]
+            gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
+            assert len(vdd_pins) == 1, "Expected to find one VDD pin but found: {}".format(vdd_pins)
+            assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
+            vdd_pin = vdd_pins[0]
+            gnd_pin = gnd_pins[0]
 
-    # Sanity check.
-    if len(set(differential_inputs.keys())) != len(set(differential_inputs.values())):
-        logger.error(f"Mismatch in the mapping of differential inputs.")
-        exit(1)
+            logger.info(f"Supply net: {vdd_pin}")
+            logger.info(f"Ground net: {gnd_pin}")
 
-    def _transistors2multigraph(transistors) -> nx.MultiGraph:
-        """ Create a graph representing the transistor network.
-            Each edge corresponds to a transistor, each node to a net.
-        """
-        G = nx.MultiGraph()
-        for t in transistors:
-            G.add_edge(t.source_net, t.drain_net, (t.gate_net, t.channel_type))
+            # Match differential inputs.
+            if args.diff is not None:
+                differential_inputs = util.find_differential_inputs_by_pattern(args.diff, io_pins)
+            else:
+                differential_inputs = dict()
 
-        connected = list(nx.connected_components(G))
-        print(connected)
-        logger.debug(f"Number of connected graphs: {len(connected)}")
-        assert nx.is_connected(G)
-        return G
+            # Sanity check.
+            if len(set(differential_inputs.keys())) != len(set(differential_inputs.values())):
+                logger.error(f"Mismatch in the mapping of differential inputs.")
+                exit(1)
 
-    # Derive boolean functions for the outputs from the netlist.
-    logger.info("Derive boolean functions for the outputs based on the netlist.")
-    transistor_graph = _transistors2multigraph(transistors_abstract)
-    if args.plot_network:
-        import matplotlib.pyplot as plt
-        pos = nx.spring_layout(transistor_graph)
-        nx.draw(transistor_graph, pos, with_labels=True)
-        print(list(transistor_graph.edges(keys=True)))
-        edge_labels = {(a, b): gate_net for a, b, (gate_net, channel_type) in transistor_graph.edges(keys=True)}
-        nx.draw_networkx_edge_labels(transistor_graph, pos, edge_labels=edge_labels)
-        plt.show()
-    abstract = functional_abstraction.analyze_circuit_graph(graph=transistor_graph,
-                                                            pins_of_interest=io_pins,
-                                                            constant_input_pins={vdd_pin: True,
-                                                                                 gnd_pin: False},
-                                                            differential_inputs=differential_inputs,
-                                                            user_input_nets=None)
-    output_functions_deduced = abstract.outputs
+            def _transistors2multigraph(transistors) -> nx.MultiGraph:
+                """ Create a graph representing the transistor network.
+                    Each edge corresponds to a transistor, each node to a net.
+                """
+                G = nx.MultiGraph()
+                for t in transistors:
+                    G.add_edge(t.source_net, t.drain_net, (t.gate_net, t.channel_type))
 
-    # Convert keys into strings (they are `sympy.Symbol`s now)
-    output_functions_deduced = {output.name: comb.function for output, comb in output_functions_deduced.items()}
+                connected = list(nx.connected_components(G))
+                print(connected)
+                logger.debug(f"Number of connected graphs: {len(connected)}")
+                assert nx.is_connected(G)
+                return G
 
-    # Log deduced output functions.
-    for output_name, function in output_functions_deduced.items():
-        logger.info("Deduced output function: {} = {}".format(output_name, function))
+            # Derive boolean functions for the outputs from the netlist.
+            logger.info("Derive boolean functions for the outputs based on the netlist.")
+            transistor_graph = _transistors2multigraph(transistors_abstract)
+            if args.plot_network:
+                import matplotlib.pyplot as plt
+                pos = nx.spring_layout(transistor_graph)
+                nx.draw(transistor_graph, pos, with_labels=True)
+                print(list(transistor_graph.edges(keys=True)))
+                edge_labels = {(a, b): gate_net for a, b, (gate_net, channel_type) in transistor_graph.edges(keys=True)}
+                nx.draw_networkx_edge_labels(transistor_graph, pos, edge_labels=edge_labels)
+                plt.show()
+            abstract = functional_abstraction.analyze_circuit_graph(graph=transistor_graph,
+                                                                    pins_of_interest=io_pins,
+                                                                    constant_input_pins={vdd_pin: True,
+                                                                                         gnd_pin: False},
+                                                                    differential_inputs=differential_inputs,
+                                                                    user_input_nets=None)
+            output_functions_deduced = abstract.outputs
 
-    # Try to recognize sequential cells.
-    seq = seq_recognition.extract_sequential_circuit(abstract)
+            # Convert keys into strings (they are `sympy.Symbol`s now)
+            output_functions_deduced = {output.name: comb.function for output, comb in output_functions_deduced.items()}
 
-    if seq is not None:
-        print()
-        print(seq)
+            # Log deduced output functions.
+            for output_name, function in output_functions_deduced.items():
+                logger.info("Deduced output function: {} = {}".format(output_name, function))
+
+            # Try to recognize sequential cells.
+            seq = seq_recognition.extract_sequential_circuit(abstract)
+
+            if seq is not None:
+                print()
+                print(seq)

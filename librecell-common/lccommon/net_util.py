@@ -42,15 +42,23 @@ def get_subcircuit_ports(file: str, subckt_name: str) -> List[str]:
     return pins
 
 
-def load_subcircuit(path: str, circuit_name: str) -> Tuple[db.Netlist, db.Circuit]:
-    """ Load a sub circuit from a SPICE file.
-    :param path: Path to the spice file containing the subcircuit.
+def load_netlist(path: str) -> db.Netlist:
+    """
+    Load a SPICE netlist.
+    :param path: Path to the spice file.
+    :return: Return a KLayout Netlist object.
+    """
+    netlist = db.Netlist()
+    netlist.read(path, db.NetlistSpiceReader())
+    return netlist
+
+
+def get_subcircuit(netlist: db.Netlist, circuit_name: str) -> db.Circuit:
+    """ Get a sub circuit by name (case insensitive).
     :param circuit_name: Name of the subcircuit.
     :return: A tuple with the netlist and the circuit. Returns none if there's no subcircuit with this name.
     """
 
-    netlist = db.Netlist()
-    netlist.read(path, db.NetlistSpiceReader())
     if not circuit_name.isupper():
         # KLayout converts cell names to uppercase.
         # Check if that is still true:
@@ -60,12 +68,25 @@ def load_subcircuit(path: str, circuit_name: str) -> Tuple[db.Netlist, db.Circui
 
     circuit: db.Circuit = netlist.circuit_by_name(circuit_name)
 
+    return circuit
+
+def load_subcircuit(path: str, circuit_name: str) -> Tuple[db.Netlist, db.Circuit]:
+    """ Load a sub circuit from a SPICE file.
+    :param path: Path to the spice file containing the subcircuit.
+    :param circuit_name: Name of the subcircuit.
+    :return: A tuple with the netlist and the circuit. Returns none if there's no subcircuit with this name.
+    """
+
+    netlist = load_netlist(path)
+
+    circuit: db.Circuit = get_subcircuit(netlist, circuit_name)
+
     # Have to return the netlist too. Otherwise it is deconstructed already.
     return netlist, circuit
 
 
-def load_transistor_netlist(path: str, circuit_name: str, force_lowercase: bool = False) -> Tuple[List[Transistor], Set[str]]:
-    """ Load a transistor level circuit from a spice netlist.
+def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> Tuple[List[Transistor], Set[str]]:
+    """ Load a transistor level circuit from a circuit.
 
     :param path: The path to the netlist.
     :param force_lowercase: Convert all net names to lower case letters.
@@ -79,9 +100,6 @@ def load_transistor_netlist(path: str, circuit_name: str, force_lowercase: bool 
     f = lambda s: s
     if force_lowercase:
         f = lambda s: s.lower()
-
-    # Read netlist. TODO: take netlist object as argument.
-    netlist, circuit = load_subcircuit(path, circuit_name)
 
     if circuit is None:
         all_circuits = [c.name for c in netlist.each_circuit()]
@@ -143,6 +161,22 @@ def load_transistor_netlist(path: str, circuit_name: str, force_lowercase: bool 
 
     return transistors_klayout, set(pins)
 
+
+def load_transistor_netlist(path: str, circuit_name: str, force_lowercase: bool = False) -> Tuple[List[Transistor], Set[str]]:
+    """ Load a transistor level circuit from a spice netlist.
+
+    :param path: The path to the netlist.
+    :param force_lowercase: Convert all net names to lower case letters.
+
+    Returns
+    -------
+    Returns a list of `Transistor`s and a list of the pin names including power pins.
+    (List[Transistors], pin_names)
+    """
+
+    # Read netlist. TODO: take netlist object as argument.
+    netlist, circuit = load_subcircuit(path, circuit_name)
+    return extract_transistors(circuit, force_lowercase)
 
 def is_ground_net(net: str) -> bool:
     """ Test if net is something like 'gnd' or 'vss'.
