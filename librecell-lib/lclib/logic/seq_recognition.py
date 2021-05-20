@@ -352,83 +352,127 @@ class DFFExtractor:
 
             # Store the results in the flip-flop description object.
             if async_set_signals:
-                dff.async_preset, dff.async_set_polarity = async_set_signals[0]
+                async_preset, async_set_polarity = async_set_signals[0]
+                # TODO: This can be simplified by just finding the 'preset' condition.
+                if async_set_polarity:
+                    dff.async_preset = async_preset
+                else:
+                    dff.async_preset = ~async_preset
             if async_reset_signals:
-                dff.async_clear, dff.async_reset_polarity = async_reset_signals[0]
+                async_clear, async_reset_polarity = async_reset_signals[0]
+                if async_reset_polarity:
+                    dff.async_clear = async_clear
+                else:
+                    dff.async_clear = ~async_clear
 
-        ff_output_data = []
-        for output in outputs:
+        # Eliminate Set/Reset.
+        latch1_data_normal = simplify_with_assumption(ff_normal_condition, latch1.data)
+        latch2_data_normal = simplify_with_assumption(ff_normal_condition, latch2.data)
+        # Eliminate clock.
+        latch1_data_normal = latch1_data_normal.subs({clock_signal: not active_edge_polarity})
+        latch2_data_normal = latch2_data_normal.subs({clock_signal: active_edge_polarity})
+
+        ff_internal_state_name = sympy.Symbol('IQ')
+        ff_internal_state_node = latch2_output_node
+
+        # Resolve the data which gets written into the internal state on a clock edge.
+        # Find data that gets written into the flip-flop in normal operation mode.
+        ff_data_next = simplify_with_assumption(ff_normal_condition, ff_internal_state_node)
+
+        # Resolve through second latch.
+        ff_data_next = ff_data_next.subs({
+            latch2_output_node: latch2_data_normal,
+            clock_signal: active_edge_polarity
+        })
+
+        # Resolve through first latch.
+        ff_data_next = ff_data_next.subs({
+            latch1_output_node: latch1_data_normal,
+            clock_signal: not active_edge_polarity
+        })
+        ff_data_next = simplify_logic(ff_data_next)
+
+        dff.internal_state = ff_internal_state_name
+
+        # Normalize by removing inversions.
+        if type(ff_data_next) == boolalg.Not:
+            ff_data_next = ~ff_data_next
+            ff_internal_state_name = ~ff_internal_state_name
+
+        # Store the formula of the next state.
+        dff.next_state = ff_data_next
+
+        logger.debug(f"Flip-flop output data: {dff.next_state}")
+
+        # Find combinational output formulas. They may depend on the internal state of the flip-flop.
+        ff_output_functions = dict()
+        for output_net in output_nets:
+
+            # Find combinational function of the output net.
+            # It should be a function of the primary inputs and of latch outputs.
+            output_function = c.outputs[output_net].function
+
             # Find data that gets written into the flip-flop in normal operation mode.
-            ff_data_next = simplify_with_assumption(ff_normal_condition, output.function)
-            # Eliminate Set/Reset.
-            latch1_data_normal = simplify_with_assumption(ff_normal_condition, latch1.data)
-            latch2_data_normal = simplify_with_assumption(ff_normal_condition, latch2.data)
-            # Eliminate clock.
-            latch1_data_normal = latch1_data_normal.subs({clock_signal: not active_edge_polarity})
-            latch2_data_normal = latch2_data_normal.subs({clock_signal: active_edge_polarity})
+            output_formula = simplify_with_assumption(ff_normal_condition, output_function)
 
             # Resolve through second latch.
-            ff_data_next = ff_data_next.subs({
-                latch2_output_node: latch2_data_normal,
-                clock_signal: active_edge_polarity
+            output_formula = output_formula.subs({
+                ff_internal_state_node: ff_internal_state_name
             })
 
-            # Resolve through first latch.
-            ff_data_next = ff_data_next.subs({
-                latch1_output_node: latch1_data_normal,
-                clock_signal: not active_edge_polarity
-            })
+            logger.debug(f"Output: {output_net} = {output_formula}")
+            ff_output_functions[output_net] = output_formula
 
-            logger.debug(f"Flip-flop output data: {ff_data_next}")
-            ff_output_data.append(ff_data_next)
+        # Store the output functions.
+        dff.outputs = ff_output_functions
 
-        if len(ff_output_data) == 1:
-            # FF has only one output.
-            logger.info(f"{output_nets[0]} = {ff_output_data[0]}")
-            out_data = ff_output_data[0]
-            dff.data_in = out_data
-            dff.data_out = output_nets[0]
-        elif len(ff_output_data) == 2:
-            # Check if the outputs are inverted versions.
-
-            out1, out2 = output_nets
-            out1_data, out2_data = ff_output_data
-
-            # Check if the outputs are inverses.
-            if out1_data == boolalg.Not(out2_data):
-                logger.debug("Outputs are inverses of each other.")
-            else:
-                logger.warning("If a flip-flop has two outputs, then need to be inverses of each other.")
-                return None
-
-            # Find the inverted and non-inverted output.
-            if type(out1_data) == boolalg.Not:
-                assert type(out2_data) != boolalg.Not
-                out_inv_net = out1
-                out_net = out2
-                out_inv_data = out1_data
-                out_data = out2_data
-            else:
-                assert type(out2_data) == boolalg.Not
-                out_inv_net = out2
-                out_net = out1
-                out_inv_data = out2_data
-                out_data = out1_data
-
-            logger.info(f"Non-inverted output: {out_net} = {out_data}")
-            logger.info(f"Inverted output: {out_inv_net} = {out_inv_data}")
-
-            dff.data_in = out_data
-            dff.data_out = out_net
-            dff.data_out_inv = out_inv_net
-        else:
-            assert False
+        # if len(ff_output_data) == 1:
+        #     # FF has only one output.
+        #     logger.info(f"{output_nets[0]} = {ff_output_data[0]}")
+        #     out_data = ff_output_data[0]
+        #     dff.data_in = out_data
+        #     dff.data_out = output_nets[0]
+        # elif len(ff_output_data) == 2:
+        #     # Check if the outputs are inverted versions.
+        #
+        #     out1, out2 = output_nets
+        #     out1_data, out2_data = ff_output_data
+        #
+        #     # Check if the outputs are inverses.
+        #     if out1_data == boolalg.Not(out2_data):
+        #         logger.debug("Outputs are inverses of each other.")
+        #     else:
+        #         logger.warning("If a flip-flop has two outputs, then need to be inverses of each other.")
+        #         return None
+        #
+        #     # Find the inverted and non-inverted output.
+        #     if type(out1_data) == boolalg.Not:
+        #         assert type(out2_data) != boolalg.Not
+        #         out_inv_net = out1
+        #         out_net = out2
+        #         out_inv_data = out1_data
+        #         out_data = out2_data
+        #     else:
+        #         assert type(out2_data) == boolalg.Not
+        #         out_inv_net = out2
+        #         out_net = out1
+        #         out_inv_data = out2_data
+        #         out_data = out1_data
+        #
+        #     logger.info(f"Non-inverted output: {out_net} = {out_data}")
+        #     logger.info(f"Inverted output: {out_inv_net} = {out_inv_data}")
+        #
+        #     dff.data_in = out_data
+        #     dff.data_out = out_net
+        #     dff.data_out_inv = out_inv_net
+        # else:
+        #     assert False
 
         # Analyze boolean formula of the next flip-flop state.
         # In the simplest case of a D-flip-flop this is just one variable.
         # But there might also be a scan-chain multiplexer or synchronous
         # clear/preset logic.
-        data_variables = out_data.atoms(sympy.Symbol)
+        data_variables = ff_data_next.atoms(sympy.Symbol)
         num_variables = len(data_variables)
 
         if num_variables == 1:
@@ -442,9 +486,9 @@ class DFFExtractor:
             d, clear, preset = sympy.symbols('d clear preset')
             with_clear = d & clear
             with_preset = d | preset
-            if find_boolean_isomorphism(out_data, with_clear) is not None:
+            if find_boolean_isomorphism(ff_data_next, with_clear) is not None:
                 logger.info("Detected synchronous clear.")
-            if find_boolean_isomorphism(out_data, with_preset) is not None:
+            if find_boolean_isomorphism(ff_data_next, with_preset) is not None:
                 logger.info("Detected synchronous preset.")
         elif num_variables == 3:
             # Either synchronous clear/preset or scan.
@@ -453,7 +497,7 @@ class DFFExtractor:
 
             scan_mux = (scan_in & scan_enable) | (d & ~scan_enable)
 
-            mapping = find_boolean_isomorphism(scan_mux, out_data)
+            mapping = find_boolean_isomorphism(scan_mux, ff_data_next)
             if mapping is not None:
                 logger.info(f"Detected scan-chain mux: {mapping}")
                 dff.scan_in = mapping[scan_in]

@@ -829,7 +829,9 @@ def main():
                 static_input_voltages[pin] = voltage
 
             data_in_pin = 'D'
-            data_out_pin = 'Q'
+
+            assert cell_type.data_out is not None, "No output pin found."
+            data_out_pin = cell_type.data_out
 
             def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
                 min_clock_pulse_width, delay = find_minimum_pulse_width(

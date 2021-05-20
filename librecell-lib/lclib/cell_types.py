@@ -71,17 +71,21 @@ class SingleEdgeDFF(CellType):
 
     def __init__(self):
 
+        self.internal_state: sympy.Symbol = None
+        """
+        Variable for the current internal state.
+        """
+
         self.clocked_on: boolalg.Boolean = sympy.false
         "Clocked when the value of the boolean expression rises to true."
         self.next_state: boolalg.Boolean = sympy.false
         "Next state that follows a clock edge."
 
-        self.data_in = None
-        "Expression for the input data."
-        self.data_out = None
-        "Name of the non-inverted data output net."
-        self.data_out_inv = None
-        "Name of the inverted data output net (if any)."
+        self.outputs: Dict[sympy.Symbol, boolalg.Boolean] = dict()
+        """
+        Boolean functions for all outputs. The output functions
+        are functions of the primary inputs and of the `internal_state` variable.
+        """
 
         self.scan_enable = None
         "Name of the scan-enable input."
@@ -119,11 +123,11 @@ class SingleEdgeDFF(CellType):
     def human_readable_description(self) -> str:
 
         return f"""SingleEdgeDFF {{
+    internal_state: {self.internal_state}
+    next_state: {self.next_state}
     clocked_on: {self.clocked_on}
     active clock edge: {"rising" if self.clock_edge_polarity() else "falling"}
-    output: {self.data_out}
-    inverted output: {self.data_out_inv}
-    next data: {self.data_in}
+    outputs: {self.outputs}
 
     asynchronous preset: {self.async_preset} 
     asynchronous clear: {self.async_clear} 
