@@ -99,7 +99,7 @@ def characterize_input_capacitances(
         CalcMode.BEST: min,
         CalcMode.TYPICAL: np.mean
     }[cfg.timing_corner]
-    logger.info("Reduction function for summarizing multiple timing arcs: {}".format(reduction_function.__name__))
+    logger.debug("Reduction function for summarizing multiple timing arcs: {}".format(reduction_function.__name__))
 
     logger.debug("Measuring input capacitance.")
 
@@ -108,11 +108,10 @@ def characterize_input_capacitances(
     num_inputs = len(static_input_nets)
 
     static_inputs = list(product(*([[0, 1]] * num_inputs)))
-    logger.info(f"Number of static input combinations: {len(static_inputs)}")
+    logger.debug(f"Number of static input combinations: {len(static_inputs)}")
 
-    # TODO: How to choose input current?
-    input_current = 10000e-9  # A
-    logger.info("Input current: {}".format(input_current))
+    input_current = cfg.input_current_for_capacitance_measurement
+    logger.debug("Input current: {}".format(input_current))
 
     # Loop through all combinations of inputs.
     capacitances_rising = []

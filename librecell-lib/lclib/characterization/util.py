@@ -168,6 +168,11 @@ class CharacterizationConfig:
         of setup and hold times.
         """
 
+        self.input_current_for_capacitance_measurement = 10000e-9  # [A]
+        """
+        Define the current that is pushed into an input to measure the input capacitance.
+        """
+
 
 #
 # # TODO: Add type hints for Python 3.6.
