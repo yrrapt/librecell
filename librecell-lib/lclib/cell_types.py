@@ -70,13 +70,10 @@ class SingleEdgeDFF(CellType):
     """
 
     def __init__(self):
-        self.clock_signal = None
-        "Name of the clock signal."
-        self.clock_edge_polarity = None
-        "True = rising, False = falling"
-        self.clocked_on: boolalg.Boolean = None
+
+        self.clocked_on: boolalg.Boolean = sympy.false
         "Clocked when the value of the boolean expression rises to true."
-        self.next_state: boolalg.Boolean = None
+        self.next_state: boolalg.Boolean = sympy.false
         "Next state that follows a clock edge."
 
         self.data_in = None
@@ -90,38 +87,46 @@ class SingleEdgeDFF(CellType):
         "Name of the scan-enable input."
         self.scan_in = None
 
-        self.async_preset = None
-        "Name of the asynchronous preset signal."
-        self.async_set_polarity = None
-        "Polarity of the signal (False: active low, True: active high)."
+        self.async_preset: boolalg.Boolean = sympy.false
+        "Preset condition."
 
-        self.async_clear = None
-        "Name of the asynchronous clear signal."
-        self.async_reset_polarity = None
-        "Polarity of the signal (False: active low, True: active high)."
-
+        self.async_clear: boolalg.Boolean = sympy.false
+        "Clear condition."
     def __str__(self):
         return self.human_readable_description()
 
+    def clock_signal(self) -> sympy.Symbol:
+        """
+        Return the clock signal if there is exactly one clock signal.
+        :return:
+        """
+        atoms = list(self.clocked_on.atoms(sympy.Symbol))
+        if len(atoms) == 1:
+            return atoms[0]
+        else:
+            return None
+
+    def clock_edge_polarity(self) -> bool:
+        """
+        Get the polarity of the clock edge if there is exactly one clock signal.
+        If there are multiple or no clock signal, return `None`.
+        """
+        clock = self.clock_signal()
+        if clock is None:
+            return None
+        return self.clocked_on.subs({clock: True}) == True
+
     def human_readable_description(self) -> str:
 
-        preset_polarity = ""
-        if self.async_set_polarity is not None:
-            preset_polarity = "HIGH" if self.async_set_polarity else "LOW"
-
-        clear_polarity = ""
-        if self.async_reset_polarity is not None:
-            clear_polarity = "HIGH" if self.async_reset_polarity else "LOW"
-
         return f"""SingleEdgeDFF {{
-    clock: {self.clock_signal}
-    active clock edge: {"rising" if self.clock_edge_polarity else "falling"}
+    clocked_on: {self.clocked_on}
+    active clock edge: {"rising" if self.clock_edge_polarity() else "falling"}
     output: {self.data_out}
     inverted output: {self.data_out_inv}
     next data: {self.data_in}
 
-    asynchronous preset: {self.async_preset} {preset_polarity}
-    asynchronous clear: {self.async_clear} {clear_polarity}
+    asynchronous preset: {self.async_preset} 
+    asynchronous clear: {self.async_clear} 
 
     scan enable: {self.scan_enable}
     scan input: {self.scan_in}

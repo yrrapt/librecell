@@ -265,6 +265,9 @@ class DFFExtractor:
 
         logger.debug(f"Latch clocks: {latch1_write_normal}, {latch2_write_normal}")
 
+        clocked_on = simplify_logic(~latch1_write_normal & latch2_write_normal)
+        logger.debug(f"clocked_on: {clocked_on}")
+
         clock_signals = set(latch1_write_normal.atoms(sympy.Symbol)) | set(latch2_write_normal.atoms(sympy.Symbol))
         if len(clock_signals) != 1:
             logger.warning(f"Clock must be a single signal. Found: {clock_signals}")
@@ -287,8 +290,8 @@ class DFFExtractor:
 
         # Assemble D-flip-flop description object.
         dff = SingleEdgeDFF()
-        dff.clock_signal = clock_signal
-        dff.clock_edge_polarity = active_edge_polarity
+        dff.clocked_on = clocked_on
+        # dff.clock_edge_polarity = active_edge_polarity
 
         # == Detect asynchronous set/reset signals ==
         potential_set_reset_signals = list((set(latch1.write_condition.atoms(sympy.Symbol))

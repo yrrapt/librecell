@@ -838,7 +838,7 @@ def main():
                     clock_input=clock_pin,
                     data_in=data_in_pin,
                     data_out=data_out_pin,
-                    setup_time=2e-9, # Choose a reasonably large setup time.
+                    setup_time=2e-9,  # Choose a reasonably large setup time.
                     clock_pulse_polarity=clock_pulse_polarity,
                     rising_data_edge=rising_data_edge,
                     clock_rise_time=10e-12,  # TODO: Something fails when 0.
@@ -878,7 +878,7 @@ def main():
                 constrained_pin_transition=input_transition_times,
                 related_pin_transition=related_pin_transition,
 
-                output_load_capacitance=0,  # TODO
+                output_load_capacitance=0,  # TODO: Is it accurate to assume zero output load?
 
                 static_input_voltages=static_input_voltages
             )
@@ -895,7 +895,6 @@ def main():
 
             # Add setup/hold information to the liberty pin group.
             for constraint_type in ['hold', 'setup']:
-
                 template_table = liberty_util.create_constraint_template_table(
                     new_library, constraint_type, len(index_1), len(index_2)
                 )
