@@ -48,6 +48,7 @@ from copy import deepcopy
 from lccommon import net_util
 from lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
 import networkx as nx
+from sympy.logic import satisfiable
 import sympy.logic.boolalg
 
 from PySpice.Spice.Parser import SpiceParser
@@ -545,8 +546,8 @@ def main():
             clear = ff_group.get_boolean_function('clear')
             preset = ff_group.get_boolean_function('preset')
 
-            clear_preset_var1 = ff_group.get_boolean_function('clear_preset_var1')
-            clear_preset_var2 = ff_group.get_boolean_function('clear_preset_var2')
+            # clear_preset_var1 = ff_group.get_boolean_function('clear_preset_var1')
+            # clear_preset_var2 = ff_group.get_boolean_function('clear_preset_var2')
 
             clocked_on_also = ff_group.get_boolean_function('clocked_on_also')
             power_down_function = ff_group.get_boolean_function('power_down_function')
@@ -691,22 +692,25 @@ def main():
         cell_conf.spice_ports = spice_ports
 
         # Measure input pin capacitances.
-        logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
-        for input_pin in input_pins_non_inverted:
-            # Input capacitances are not measured for the inverting inputs of differential pairs.
-            logger.info("Measuring input capacitance: {} {}".format(cell_name, input_pin))
-            input_pin_group = new_cell_group.get_group('pin', input_pin)
+        if False:
+            logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
+            for input_pin in input_pins_non_inverted:
+                # Input capacitances are not measured for the inverting inputs of differential pairs.
+                logger.info("Measuring input capacitance: {} {}".format(cell_name, input_pin))
+                input_pin_group = new_cell_group.get_group('pin', input_pin)
 
-            result = characterize_input_capacitances(
-                input_pins=input_pins,
-                active_pin=input_pin,
-                output_pins=output_pins,
-                cell_conf=cell_conf
-            )
+                result = characterize_input_capacitances(
+                    input_pins=input_pins,
+                    active_pin=input_pin,
+                    output_pins=output_pins,
+                    cell_conf=cell_conf
+                )
 
-            input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_scale_factor
-            input_pin_group['fall_capacitance'] = result['fall_capacitance'] * capacitance_unit_scale_factor
-            input_pin_group['capacitance'] = result['capacitance'] * capacitance_unit_scale_factor
+                input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_scale_factor
+                input_pin_group['fall_capacitance'] = result['fall_capacitance'] * capacitance_unit_scale_factor
+                input_pin_group['capacitance'] = result['capacitance'] * capacitance_unit_scale_factor
+        else:
+            logger.warning("Skip measuring input capacitances.")
 
         if isinstance(cell_type, Combinational):
             # Measure timing for all input-output arcs.
@@ -797,10 +801,32 @@ def main():
 
             assert isinstance(clock_pin, str)
 
-            logger.debug(f"Clock signal: {clock_pin}")
-            logger.debug(f"Clock polarity: {'rising' if clock_edge_polarity else 'falling'}")
+            logger.info(f"Clock signal: {clock_pin}")
+            logger.info(f"Clock polarity: {'rising' if clock_edge_polarity else 'falling'}")
             print(cell_type)
             # exit(1)
+
+            # Find preset/clear signals.
+            # Make sure preset/clear are disabled.
+            preset_condition = cell_type.async_preset
+            clear_condition = cell_type.async_clear
+            # Find a variable assignment such that neither preset nor clear is active.
+            no_preset_no_clear = list(satisfiable(~preset_condition & ~clear_condition, all_models=True))
+            for model in no_preset_no_clear:
+                logger.info(f"FF in normal operation mode when: {model}")
+            preset_clear_input = no_preset_no_clear[0]
+            if len(no_preset_no_clear) > 0:
+                logger.warning(f"Multiple possiblities found for disabling preset and clear. "
+                               f"Take the first one ({preset_clear_input}).")
+
+            # Create static input voltages for preset/clear.
+            static_input_voltages = dict()
+            for pin, value in preset_clear_input.items():
+                value = value == True
+                voltage = cell_conf.global_conf.supply_voltage if value else 0.0
+                pin = str(pin)
+                logger.debug(f"{pin} = {voltage} V")
+                static_input_voltages[pin] = voltage
 
             data_in_pin = 'D'
             data_out_pin = 'Q'
@@ -812,7 +838,7 @@ def main():
                     clock_input=clock_pin,
                     data_in=data_in_pin,
                     data_out=data_out_pin,
-                    setup_time=1e-9,
+                    setup_time=2e-9, # Choose a reasonably large setup time.
                     clock_pulse_polarity=clock_pulse_polarity,
                     rising_data_edge=rising_data_edge,
                     clock_rise_time=10e-12,  # TODO: Something fails when 0.
@@ -820,7 +846,7 @@ def main():
                     output_load_capacitances={data_out_pin: 0},
                     clock_pulse_width_guess=100e-12,
                     max_delay_estimation=1e-7,
-                    static_input_voltages=None,  # TODO: Add values for set/reset signals.
+                    static_input_voltages=static_input_voltages,
                 )
                 logger.info(f'min_clock_pulse_width = {min_clock_pulse_width}, delay = {delay}')
                 return min_clock_pulse_width, delay
@@ -854,7 +880,7 @@ def main():
 
                 output_load_capacitance=0,  # TODO
 
-                static_input_voltages=None  # TODO: Disable preset/clear/scan_en.
+                static_input_voltages=static_input_voltages
             )
 
             # Get the table indices.

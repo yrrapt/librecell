@@ -420,21 +420,24 @@ def find_minimum_pulse_width(
             break
     lower_bound = pulse_width
 
-    logger.debug(f"Minimal clock pulse is between: {lower_bound} s and {upper_bound} s")
+    logger.debug(f"Search for minimum pulse width in the interval [{lower_bound}, {upper_bound}].")
 
     max_delay = reference_delay + cfg.max_pushout_time
 
     def f(pulse_width) -> float:
-        return delay_function(pulse_width, delay_estimation) - max_delay
+        result = delay_function(pulse_width, delay_estimation) - max_delay
+        logger.debug(f"f({pulse_width}) == {result}")
+        return result
 
     assert f(lower_bound) > 0, f"f({lower_bound}) = {f(lower_bound)}"
     assert f(upper_bound) < 0, f"f({upper_bound}) = {f(upper_bound)}"
 
-    min_pulse_width = optimize.bisect(f, lower_bound, upper_bound)
+    min_pulse_width = optimize.brentq(f, lower_bound, upper_bound)
     assert isinstance(min_pulse_width, float)
 
     logger.info(f"Minimal clock pulse: {min_pulse_width}s")
     corresponding_delay = delay_function(min_pulse_width, delay_estimation)
+    logger.debug(f"Corresponding delay: {corresponding_delay}")
     assert not math.isinf(corresponding_delay)
 
     return min_pulse_width, corresponding_delay
@@ -1214,7 +1217,7 @@ def measure_flip_flop_setup_hold(
         # plt.plot(t_su, err)
         # plt.show()
 
-        min_setup_time = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
+        min_setup_time = optimize.brentq(f, shortest, longest, xtol=xtol, rtol=rtol)
         assert isinstance(min_setup_time, float)
         if math.isclose(min_setup_time, shortest) or math.isclose(min_setup_time, longest):
             logger.warning("Result of binary search is on bounds. Optimal setup-time not found.")
@@ -1269,7 +1272,7 @@ def measure_flip_flop_setup_hold(
 
         assert b < 0
 
-        min_hold_time = optimize.bisect(f, shortest, longest, xtol=xtol, rtol=rtol)
+        min_hold_time = optimize.brentq(f, shortest, longest, xtol=xtol, rtol=rtol)
         assert isinstance(min_hold_time, float)
         delay_err = f(min_hold_time)
         # Check if we really found the root of `f`.
@@ -1364,7 +1367,7 @@ def measure_flip_flop_setup_hold(
 
             assert b < 0 and a > 0
 
-            new_window_width = optimize.bisect(f_width, width_lower_bound, width_upper_bound, xtol=xtol, rtol=rtol)
+            new_window_width = optimize.brentq(f_width, width_lower_bound, width_upper_bound, xtol=xtol, rtol=rtol)
             assert isinstance(new_window_width, float)
             window_width = new_window_width
 
