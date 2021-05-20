@@ -225,15 +225,14 @@ exit
             logger.debug(sim_netlist)
 
             # Dump simulation script to the file.
-            logger.info(f"Write simulation netlist: {sim_file}")
+            # logger.debug(f"Write simulation netlist: {sim_file}")
             open(sim_file, "w").write(sim_netlist)
 
             # Run simulation.
-            logger.debug("Run simulation.")
             stdout, stderr = run_simulation(sim_file)
 
             # Fetch simulation results.
-            logger.debug("Load simulation output.")
+            # logger.debug("Load simulation output.")
             sim_data = np.loadtxt(sim_output_file, skiprows=1)
 
             if sim_data.ndim != 2:
@@ -288,7 +287,7 @@ exit
             logger.debug("dV: {}".format(dv))
             logger.debug("dt: {}".format(dt))
             logger.debug("I: {}".format(input_current))
-            logger.info("Input capacitance {}: {} F".format(active_pin, capacitance))
+            logger.debug("Input capacitance {}: {} F".format(active_pin, capacitance))
 
             if input_rising:
                 capacitances_rising.append(capacitance)
