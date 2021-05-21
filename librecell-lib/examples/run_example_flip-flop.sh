@@ -10,4 +10,4 @@ lctime --liberty template.lib \
     --output-loads "0.05" \
     --slew-times "0.1" \
     --related-pin-transition "0.1" \
-    --output dffposx1.lib
+    --output dffsr.lib
