@@ -18,9 +18,10 @@
 ## along with this program. If not, see <http://www.gnu.org/licenses/>.
 ##
 
-from typing import Dict, List
+from typing import Dict, List, Set
 import sympy
 from sympy.logic import boolalg
+from .logic.types import CombinationalOutput
 
 
 class CellType:
@@ -34,8 +35,15 @@ class CellType:
         "Boolean expression that tells when the cell is not powered."
         self.inputs: List[sympy.Symbol] = []
         "Input pins of the cell."
-        self.outputs: Dict[sympy.Symbol, boolalg.Boolean] = dict()
+        self.outputs: Dict[sympy.Symbol, CombinationalOutput] = dict()
         "Dictionary with output pins mapped to their boolean expressions."
+
+    def get_tristate_outputs(self) -> Set[sympy.Symbol]:
+        """
+        Return all output pins which can be high-impedance.
+        :return:
+        """
+        return {name for name, comb in self.outputs.items() if comb.is_tristate()}
 
     def human_readable_description(self) -> str:
         raise NotImplementedError()

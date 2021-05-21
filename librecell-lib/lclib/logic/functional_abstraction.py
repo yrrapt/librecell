@@ -29,38 +29,14 @@ from sympy.logic import boolalg
 from lclayout.data_types import ChannelType
 import logging
 
+from .types import CombinationalOutput
+
 # logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
 """
 Extract logic formulas and memory loops from a transistor-level circuit graph.
 """
-
-
-class CombinationalOutput:
-    """
-    Description of an output signal of a combinatorial circuit.
-    """
-
-    def __init__(self, function: boolalg.Boolean, high_impedance: boolalg.Boolean):
-        self.function: boolalg.Boolean = function
-        "Boolean expression for the logic output."
-        self.high_impedance: boolalg.Boolean = high_impedance
-        "Boolean expression which tells when the output is in high-impedance state."
-
-    def is_tristate(self):
-        """
-        Check if the output have be high-impedance.
-        Check if the high-impedance condition is satisfiable.
-        :return: bool
-        """
-        return satisfiable(self.high_impedance)
-
-    def __str__(self):
-        return "CombinationalOutput(f = {}, Z = {})".format(self.function, self.high_impedance)
-
-    def __repr__(self):
-        return str(self)
 
 
 class Memory:

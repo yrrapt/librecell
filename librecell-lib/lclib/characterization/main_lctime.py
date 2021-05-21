@@ -37,6 +37,7 @@ from ..logic.util import is_unate_in_xi
 from ..liberty import util as liberty_util
 from ..logic import functional_abstraction
 from ..logic import seq_recognition
+from ..logic.types import CombinationalOutput
 
 from .util import *
 from .timing_combinatorial import characterize_comb_cell
@@ -72,6 +73,11 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
     :param cell_group:
     :return:
     """
+
+    # Get information on pins from the liberty file.
+    input_pins, output_pins, output_functions_user, tristate_functions_user = \
+        liberty_util.get_pin_information(cell_group)
+
     ff_group = cell_group.get_groups("ff")
     latch_group = cell_group.get_groups("latch")
 
@@ -93,29 +99,66 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
         clear = ff_group.get_boolean_function('clear')
         preset = ff_group.get_boolean_function('preset')
 
-        # clear_preset_var1 = ff_group.get_boolean_function('clear_preset_var1')
-        # clear_preset_var2 = ff_group.get_boolean_function('clear_preset_var2')
+        # TODO: Store and use this.
+        clear_preset_var1 = ff_group['clear_preset_var1']
+        clear_preset_var2 = ff_group['clear_preset_var2']
 
+        # TODO: Store and use this.
         clocked_on_also = ff_group.get_boolean_function('clocked_on_also')
-        power_down_function = ff_group.get_boolean_function('power_down_function')
 
         cell_type = SingleEdgeDFF()
-        cell_type.power_down_function = power_down_function
         cell_type.internal_state = sympy.Symbol(iq)
         cell_type.clocked_on = clocked_on
         cell_type.next_state = next_state
         cell_type.async_preset = preset
         cell_type.async_clear = clear
-        cell_type.outputs = {sympy.Symbol(name): function for name, function in output_functions_user.items()}
 
     elif latch_group:
         if len(latch_group) != 1:
             assert False, "Cannot characterize cells with more than one 'latch' group."
         logger.info("'latch' group found. Cell is expected to be a latch.")
+        latch_group = latch_group[0]
+        assert isinstance(latch_group, Group)
+
+        # Get state names.
+        iq, iqn = latch_group.args
+
         cell_type = Latch()
+        cell_type.internal_state = sympy.Symbol(iq)
+
+        clocked_on = latch_group.get_boolean_function('clocked_on')
+        next_state = latch_group.get_boolean_function('next_state')
+
+        clear = latch_group.get_boolean_function('clear')
+        preset = latch_group.get_boolean_function('preset')
+
+        # TODO: Store and use this.
+        clear_preset_var1 = latch_group['clear_preset_var1']
+        clear_preset_var2 = latch_group['clear_preset_var2']
+
+        # TODO: Store and use this.
+        clocked_on_also = latch_group.get_boolean_function('clocked_on_also')
+
+        cell_type.clocked_on = clocked_on
+        cell_type.next_state = next_state
+        cell_type.async_preset = preset
+        cell_type.async_clear = clear
     else:
         # No sequential element.
         cell_type = Combinational()
+
+    # TODO:
+    # power_down_function = cell_group.get_boolean_function('power_down_function')
+    # cell_type.power_down_function = power_down_function
+
+    # Create description of output pins.
+    for name, function in output_functions_user.items():
+        t = sympy.false
+        if name in tristate_functions_user:
+            t = tristate_functions_user[name]
+        comb = CombinationalOutput(function, high_impedance=t)
+
+        cell_type.outputs[sympy.Symbol(name)] = comb
 
     return cell_type
 
@@ -495,8 +538,11 @@ def main():
         logger.info("Netlist: {}".format(netlist_file))
 
         # Get information on pins from the liberty file.
-        input_pins, output_pins, output_functions_user = liberty_util.get_pin_information(cell_group)
+        input_pins, output_pins, output_functions_user, tristate_functions_user = \
+            liberty_util.get_pin_information(cell_group)
+
         liberty_pins = set(input_pins) | set(output_pins)
+
         # Create a lookup table to reconstruct lower/upper case letters.
         # This is a workaround. The SPICE parser converts everything to uppercase.
         case_lookup_table = {p.lower(): p for p in liberty_pins}
@@ -672,7 +718,7 @@ def main():
             else:
                 logger.info("Detected purely combinational circuit.")
                 detected_cell_type = Combinational()
-                detected_cell_type.outputs = abstracted_circuit.output_pins
+                detected_cell_type.outputs = abstracted_circuit.outputs
                 detected_cell_type.inputs = abstracted_circuit.get_primary_inputs()
                 if cell_type is None:
                     cell_type = Combinational()
@@ -689,14 +735,18 @@ def main():
 
             output_functions_deduced = abstracted_circuit.outputs
 
+            # Log deduced output functions.
+            for output_name, value in output_functions_deduced.items():
+                if value.high_impedance:
+                    logger.info(
+                        f"Deduced output function: {output_name} = {value.function}, tri_state = {value.high_impedance}")
+                else:
+                    logger.info(f"Deduced output function: {output_name} = {value.function}")
+
             # Convert keys into strings (they are `sympy.Symbol`s now)
             output_functions_deduced = {str(output.name): comb.function for output, comb in
                                         output_functions_deduced.items()}
-            output_functions_symbolic = output_functions_deduced
-
-            # Log deduced output functions.
-            for output_name, function in output_functions_deduced.items():
-                logger.info("Deduced output function: {} = {}".format(output_name, function))
+            output_functions_symbolic = output_functions_deduced.copy()
 
             # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
             for output_name, function in output_functions_user.items():
@@ -750,6 +800,10 @@ def main():
             pin_group = new_cell_group.get_group('pin', pin)
             if 'direction' not in pin_group:
                 pin_group['direction'] = 'output'
+            pin_symbol = sympy.Symbol(pin)
+            if cell_type.outputs[pin_symbol].is_tristate():
+                # Mark as tri-state.
+                pin_group.set_boolean_function('three_state', cell_type.outputs[pin_symbol].high_impedance)
 
         # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
         for input_pin in input_pins_non_inverted:

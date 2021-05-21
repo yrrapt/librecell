@@ -29,11 +29,12 @@ def get_pin_information(cell_group: Group):
     """
     Get a list of input pins, output pins and the logic functions of output pins.
     :param cell_group:
-    :return: (list of input pins, list of output pins, Dict[output pin, logic function])
+    :return: (list of input pins, list of output pins, Dict[output pin, logic function], Dict[output pin, tri-state function])
     """
     input_pins = []
     output_pins = []
     output_functions = dict()
+    output_tri_state_functions = dict()
     for pin_group in cell_group.get_groups('pin'):
         # Get pin name
         pin_name = pin_group.args[0]
@@ -52,6 +53,13 @@ def get_pin_information(cell_group: Group):
                 logger.info(msg)
             expr = ''
 
+        # Get boolean expression for tri-state condition.
+        tri_state = pin_group.get_boolean_function('three_state')
+        if tri_state is not None:
+            output_tri_state_functions[pin_name] = tri_state
+            if direction != 'output':
+                logger.error(f"Found non-output that with tri-state: {pin_name}")
+
         logger.info("Pin '{}' {} {}".
                     format(pin_name, direction, expr)
                     )
@@ -68,7 +76,7 @@ def get_pin_information(cell_group: Group):
         else:
             logger.warning("Pin direction type not handled: {}".format(direction))
 
-    return input_pins, output_pins, output_functions
+    return input_pins, output_pins, output_functions, output_tri_state_functions
 
 
 def create_table_template_if_not_exists(library: Group,
