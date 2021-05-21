@@ -252,12 +252,12 @@ def main():
     cap_unit_prefix = cap_unit_str[:1]
 
     prefixes = {
-        'm': 1e-3,
-        'u': 1e-6,
-        'n': 1e-9,
-        'p': 1e-12,
-        'f': 1e-15,
-        'a': 1e-18
+        'm': 1e-3,  # milli
+        'u': 1e-6,  # micro
+        'n': 1e-9,  # nano
+        'p': 1e-12,  # pico
+        'f': 1e-15,  # femto
+        'a': 1e-18  # atto
     }
 
     # Compute actual units in terms of SI units.
@@ -267,9 +267,9 @@ def main():
     logger.info(f"Capacitance unit: {cap_unit} F")
     logger.info(f"Time unit: {time_unit} s")
 
-    capacitance_unit_scale_factor = 1/cap_unit
+    capacitance_unit_scale_factor = 1 / cap_unit
     # TODO: get correct unit from liberty file.
-    time_unit_scale_factor = 1/time_unit
+    time_unit_scale_factor = 1 / time_unit
 
     # Get timing corner from liberty file.
     # Find definitions of operating conditions and sort them by name.
