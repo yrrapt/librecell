@@ -571,7 +571,7 @@ def main():
         # TODO: Load all netlists at the beginning.
         logger.info('Load netlist: %s', netlist_file)
         try:
-            transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name, force_lowercase=True)
+            transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name)
         except Exception as e:
             abort(str(e))
 

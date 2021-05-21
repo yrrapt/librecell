@@ -1,0 +1,28 @@
+library (gscl45nm) {
+  capacitive_load_unit (1.0, pf);
+  current_unit: "1uA";
+  default_operating_conditions: typical;
+  delay_model: table_lookup;
+  in_place_swap_mode: match_footprint;
+  input_threshold_pct_fall: 50.0;
+  input_threshold_pct_rise: 50.0;
+  leakage_power_unit: "1nW";
+  nom_process: 1.0;
+  nom_temperature: 27.0;
+  nom_voltage: 1.1;
+  output_threshold_pct_fall: 50.0;
+  output_threshold_pct_rise: 50.0;
+  pulling_resistance_unit: "1kohm";
+  slew_lower_threshold_pct_fall: 20.0;
+  slew_lower_threshold_pct_rise: 20.0;
+  slew_upper_threshold_pct_fall: 80.0;
+  slew_upper_threshold_pct_rise: 80.0;
+  time_unit: "1ns";
+  voltage_unit: "1V";
+  operating_conditions (typical) {
+    process: 1.0;
+    temperature: 27.0;
+    voltage: 1.1;
+  }
+
+}
