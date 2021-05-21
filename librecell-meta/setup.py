@@ -7,7 +7,7 @@ def readme():
 
 
 setup(name='librecell',
-      version='0.0.9',
+      version='0.0.12',
       description='Meta-package for the LibreCell suite.',
       long_description=readme(),
       long_description_content_type="text/markdown",
@@ -23,8 +23,8 @@ setup(name='librecell',
       author_email='code@tkramer.ch',
       license='',  # ???
       install_requires=[
-          'librecell-common==0.0.9',
-          'librecell-layout==0.0.9',
-          'librecell-lib==0.0.10',
+          'librecell-common==0.0.12',
+          'librecell-layout==0.0.12',
+          'librecell-lib==0.0.12',
       ],
       zip_safe=False)
