@@ -743,20 +743,21 @@ def main():
                 else:
                     logger.info(f"Deduced output function: {output_name} = {value.function}")
 
-            # Convert keys into strings (they are `sympy.Symbol`s now)
-            output_functions_deduced = {str(output.name): comb.function for output, comb in
-                                        output_functions_deduced.items()}
-            output_functions_symbolic = output_functions_deduced.copy()
+            # # Convert keys into strings (they are `sympy.Symbol`s now)
+            # output_functions_deduced = {str(output.name): comb.function for output, comb in
+            #                             output_functions_deduced.items()}
+            # output_functions_symbolic = output_functions_deduced.copy()
 
             # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
             for output_name, function in output_functions_user.items():
+                output_symbol = sympy.Symbol(output_name)
                 logger.info("User supplied output function: {} = {}".format(output_name, function))
                 assert output_name in output_functions_deduced, "No function has been deduced for output pin '{}'.".format(
                     output_name)
                 # Consistency check:
                 # Verify that the deduced output formula is equal to the one defined in the liberty file.
                 logger.info("Check equality of boolean function in liberty file and derived function.")
-                equal = functional_abstraction.bool_equals(function, output_functions_deduced[output_name])
+                equal = functional_abstraction.bool_equals(function, output_functions_deduced[output_symbol].function)
                 if not equal:
                     msg = "User supplied function does not match the deduced function for pin '{}'".format(output_name)
                     logger.error(msg)
@@ -764,15 +765,16 @@ def main():
                 if equal:
                     # Take the function defined by the liberty file.
                     # This might be desired because it is in another form (CND, DNF,...).
-                    output_functions_symbolic[output_name] = function
+                    cell_type.outputs[output_symbol] = function
         else:
             # Skip functional abstraction and take the functions provided in the liberty file.
             output_functions_symbolic = output_functions_user
+            pass  # TODO
 
         # Convert deduced output functions into Python lambda functions.
         output_functions = {
-            name: _boolean_to_lambda(f)
-            for name, f in output_functions_symbolic.items()
+            str(name): _boolean_to_lambda(comb_output.function)
+            for name, comb_output in cell_type.outputs.items()
         }
 
         # Add groups for the cell to be characterized.
@@ -851,12 +853,41 @@ def main():
             # Measure timing for all input-output arcs.
             logger.debug("Measuring combinational delay arcs.")
             for output_pin in output_pins:
+                output_pin_symbol = sympy.Symbol(output_pin)
                 output_pin_group = new_cell_group.get_group('pin', output_pin)
 
-                # Insert boolean function of output.
-                output_pin_group.set_boolean_function('function', output_functions_symbolic[output_pin])
+                # Store boolean function of output to liberty.
+                output_pin_group.set_boolean_function('function', cell_type.outputs[output_pin_symbol].function)
 
-                for related_pin in input_pins_non_inverted:
+                # Check if the output can be high-impedance.
+                is_tristate = cell_type.outputs[output_pin_symbol].is_tristate()
+
+                # Store three_state function to liberty.
+                constant_input_pins = dict()
+                if is_tristate:
+                    output_pin_group.set_boolean_function(
+                        'three_state', cell_type.outputs[output_pin_symbol].high_impedance
+                    )
+
+                    # Find normal operating conditions such that the output is not tri-state.
+                    models = list(satisfiable(~cell_type.outputs[output_pin_symbol].high_impedance, all_models=True))
+                    for model in models:
+                        logger.info(f"Output '{output_name}' is low-impedance when {model}.")
+
+                    if len(models) > 1:
+                        abort("Characterization of tri-state outputs is not supported when the tri-state depends on"
+                              "more than one input.")
+
+                    model = models[0]
+                    for name, value in model.items():
+                        constant_input_pins[str(name)] = value
+
+                # Skip measuring the tri-state enable input.
+                related_pins = sorted(set(input_pins_non_inverted) - constant_input_pins.keys())
+                _input_pins = sorted(set(input_pins) - constant_input_pins.keys())
+
+                # Characterize each from related_pin to output_pin.
+                for related_pin in related_pins:
 
                     related_pin_inverted = differential_inputs.get(related_pin)
                     if related_pin_inverted:
@@ -870,7 +901,7 @@ def main():
                     logger.info("Timing sense: {}".format(timing_sense))
 
                     result = characterize_comb_cell(
-                        input_pins=input_pins,
+                        input_pins=_input_pins,
                         output_pin=output_pin,
                         related_pin=related_pin,
                         output_functions=output_functions,
@@ -878,7 +909,8 @@ def main():
                         total_output_net_capacitance=output_capacitances,
                         input_net_transition=input_transition_times,
 
-                        cell_conf=cell_conf
+                        cell_conf=cell_conf,
+                        constant_inputs=constant_input_pins
                     )
 
                     # Get the table indices.

@@ -48,9 +48,12 @@ def characterize_comb_cell(
 
         cell_conf: CellConfig,
 
+        constant_inputs: Dict[str, bool] = dict()
+
 ) -> Dict[str, np.ndarray]:
     """
     Calculate the NDLM timing table of a cell for a given timing arc.
+    :param constant_inputs: A truth-assignment for input pins that are static. Used for tri-state enable pins.
     :param cell_conf: Parameters and configuration for the characterization.
     :param input_net_transition: Transition times of input signals in seconds.
     :param total_output_net_capacitance: Load capacitance in Farads.
@@ -149,6 +152,10 @@ def characterize_comb_cell(
                     assert inv not in input_voltages
                     # Add the inverted input voltage.
                     input_voltages[inv] = cfg.supply_voltage - input_voltages[p]
+
+            # Add constant voltages (tri-state enable pin).
+            for pin, value in constant_inputs.items():
+                input_voltages[pin] = cfg.supply_voltage if value else 0.0
 
             logger.debug("Static input voltages: {}".format(input_voltages))
 
