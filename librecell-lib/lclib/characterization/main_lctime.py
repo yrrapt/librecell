@@ -193,13 +193,14 @@ def main():
         for sub in parser.subcircuits:
             if sub.name in netlist_file_table:
                 # Abort if a sub circuit is defined in multiple netlists.
-                abort(f"Sub-circuit '{sub.name}' is defined in multiple netlists: {netlist_file_table[sub.name]}, {netlist_file}")
+                abort(
+                    f"Sub-circuit '{sub.name}' is defined in multiple netlists: {netlist_file_table[sub.name]}, {netlist_file}")
             netlist_file_table[sub.name] = netlist_file
 
     # Test if all cell names can be found in the netlist files.
     cell_names_not_found = set(cell_names) - netlist_file_table.keys()
     if cell_names_not_found:
-        abort("Cell name not found in netlists: {}".format(", ".join(cell_names_not_found)))
+        abort(f"Cell names not found in netlists: {', '.join(cell_names_not_found)}")
 
     # Load liberty file.
     lib_file = args.liberty
@@ -234,9 +235,41 @@ def main():
 
     # Units
     # TODO: choose correct unit from liberty file
-    capacitance_unit_scale_factor = 1e12
+    # Get the time unit used in this library.
+    # Unfortunately liberty is not consistent with the format for units...
+    time_unit_str = library['time_unit'].value.lower()
+    assert time_unit_str.endswith('s'), "Time unit string must end on 's' for seconds."
+    assert isinstance(time_unit_str, str)
+    cap_unit_factor, cap_unit_str = library['capacitive_load_unit']
+    assert cap_unit_str.endswith('f'), "Capacitance unit string must end on 'f' for Farads."
+    assert isinstance(cap_unit_str, str)
+    assert isinstance(cap_unit_factor, float)
+    cap_unit_str = cap_unit_str.lower()
+
+    time_unit_factor = float(time_unit_str[:-2])
+    time_unit_str = time_unit_str[-2:]
+    time_unit_prefix = time_unit_str[:1]
+    cap_unit_prefix = cap_unit_str[:1]
+
+    prefixes = {
+        'm': 1e-3,
+        'u': 1e-6,
+        'n': 1e-9,
+        'p': 1e-12,
+        'f': 1e-15,
+        'a': 1e-18
+    }
+
+    # Compute actual units in terms of SI units.
+    cap_unit = prefixes[cap_unit_prefix] * cap_unit_factor
+    time_unit = prefixes[time_unit_prefix] * time_unit_factor
+
+    logger.info(f"Capacitance unit: {cap_unit} F")
+    logger.info(f"Time unit: {time_unit} s")
+
+    capacitance_unit_scale_factor = 1/cap_unit
     # TODO: get correct unit from liberty file.
-    time_unit_scale_factor = 1e9
+    time_unit_scale_factor = 1/time_unit
 
     # Get timing corner from liberty file.
     # Find definitions of operating conditions and sort them by name.
@@ -368,6 +401,11 @@ def main():
 
     # Characterize all cells in the list.
     def characterize_cell(cell_name: str) -> Group:
+        """
+        Characterize a cell and create an updated cell group.
+        :param cell_name:
+        :return: Return an updated cell group.
+        """
 
         # Create working directory if it does not exist yet.
         cell_workingdir = os.path.join(conf.workingdir, cell_name)
@@ -376,14 +414,21 @@ def main():
 
         # Get netlist and liberty group.
         netlist_file = netlist_file_table[cell_name]
-        cell_group = select_cell(library, cell_name)
+        try:
+            cell_group = select_cell(library, cell_name)
+        except Exception as e:
+            logger.warning(f"No cell group defined yet in liberty file: {cell_name}")
+            # Create an empty cell group.
+            logger.debug("Create empty cell group.")
+            cell_group = Group(group_name='cell', args=[cell_name])
+
         # Check that the name matches.
-        assert cell_group.args[0] == cell_name, "Cell name does not match."
+        assert cell_group.args == [cell_name], "Cell name does not match."  # This should not happen.
 
         logger.info("Cell: {}".format(cell_name))
         logger.info("Netlist: {}".format(netlist_file))
 
-        # Get information on pins
+        # Get information on pins from the liberty file.
         input_pins, output_pins, output_functions_user = liberty_util.get_pin_information(cell_group)
         liberty_pins = set(input_pins) | set(output_pins)
         # Create a lookup table to reconstruct lower/upper case letters.
@@ -405,7 +450,11 @@ def main():
         # Load netlist of cell
         # TODO: Load all netlists at the beginning.
         logger.info('Load netlist: %s', netlist_file)
-        transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name, force_lowercase=True)
+        try:
+            transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name, force_lowercase=True)
+        except Exception as e:
+            abort(str(e))
+
         cell_pins = [fix_case(p) for p in cell_pins]
         for t in transistors_abstract:
             t.source_net = fix_case(t.source_net)
@@ -465,8 +514,8 @@ def main():
             inputs_missing_in_liberty = detected_inputs - all_liberty_pins
             if inputs_missing_in_liberty:
                 logger.warning(f"The circuit has gate nets that must be inputs "
-                            f"but are not declared as a pin in the liberty template: "
-                            f"{', '.join(sorted(inputs_missing_in_liberty))}")
+                               f"but are not declared as a pin in the liberty template: "
+                               f"{', '.join(sorted(inputs_missing_in_liberty))}")
 
             # Add detected input pins.
             diff = detected_inputs - set(input_pins)

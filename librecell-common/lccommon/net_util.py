@@ -75,6 +75,7 @@ def load_subcircuit(path: str, circuit_name: str) -> Tuple[db.Netlist, db.Circui
     :param path: Path to the spice file containing the subcircuit.
     :param circuit_name: Name of the subcircuit.
     :return: A tuple with the netlist and the circuit. Returns none if there's no subcircuit with this name.
+    Returns (netlist, None) when no such circuit exists.
     """
 
     netlist = load_netlist(path)
@@ -168,14 +169,15 @@ def load_transistor_netlist(path: str, circuit_name: str, force_lowercase: bool 
     :param path: The path to the netlist.
     :param force_lowercase: Convert all net names to lower case letters.
 
-    Returns
-    -------
-    Returns a list of `Transistor`s and a list of the pin names including power pins.
-    (List[Transistors], pin_names)
+    :return: Returns a list of `Transistor`s and a list of the pin names including power pins.
+        (List[Transistors], pin_names)
+    :raise: Raises an exception if the circuit is not found.
     """
 
     # Read netlist. TODO: take netlist object as argument.
     netlist, circuit = load_subcircuit(path, circuit_name)
+    if circuit is None:
+        raise Exception(f"Circuit not found: '{circuit_name}'")
     return extract_transistors(circuit, force_lowercase)
 
 def is_ground_net(net: str) -> bool:
