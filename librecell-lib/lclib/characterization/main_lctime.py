@@ -1107,8 +1107,8 @@ def main():
                     # TODO: minimum pulse width is potentially computed for many different input combinations. Take min/max of them! (Now just the last one will be stored)
                     clock_pin_group = new_cell_group.get_group('pin', clock_pin)
                     clock_pin_group['clock'] = 'true'
-                    clock_pin_group['min_pulse_width_high'] = min_pulse_width_high
-                    clock_pin_group['min_pulse_width_low'] = min_pulse_width_low
+                    clock_pin_group['min_pulse_width_high'] = min_pulse_width_high * time_unit_inv
+                    clock_pin_group['min_pulse_width_low'] = min_pulse_width_low * time_unit_inv
 
                     # Find setup and hold times.
                     result = characterize_flip_flop_setup_hold(
