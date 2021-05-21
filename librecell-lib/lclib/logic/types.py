@@ -58,7 +58,10 @@ class CombinationalOutput:
         return pins
 
     def __str__(self):
-        return "CombinationalOutput(f = {}, Z = {})".format(self.function, self.high_impedance)
+        if self.high_impedance:
+            return f"CombinationalOutput(f = {self.function}, Z = {self.high_impedance})"
+        else:
+            return f"CombinationalOutput(f = {self.function})"
 
     def __repr__(self):
         return str(self)
