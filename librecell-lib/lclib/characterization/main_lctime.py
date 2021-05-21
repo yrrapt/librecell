@@ -267,9 +267,10 @@ def main():
     logger.info(f"Capacitance unit: {cap_unit} F")
     logger.info(f"Time unit: {time_unit} s")
 
-    capacitance_unit_scale_factor = 1 / cap_unit
-    # TODO: get correct unit from liberty file.
-    time_unit_scale_factor = 1 / time_unit
+    capacitance_unit_inv = 1 / cap_unit
+    "Number of capacitance units in one Farad."
+    time_unit_inv = 1 / time_unit
+    "Number of time units in one second"
 
     # Get timing corner from liberty file.
     # Find definitions of operating conditions and sort them by name.
@@ -373,10 +374,10 @@ def main():
     else:
         related_pin_transition = None
 
-    logger.info(f"Output capacitances [pF]: {output_capacitances * capacitance_unit_scale_factor}")
-    logger.info(f"Input slew times [ns]: {input_transition_times * time_unit_scale_factor}")
+    logger.info(f"Output capacitances [pF]: {output_capacitances * capacitance_unit_inv}")
+    logger.info(f"Input slew times [ns]: {input_transition_times * time_unit_inv}")
     if related_pin_transition is not None:
-        logger.info(f"Related pin transition times [ns]: {related_pin_transition * time_unit_scale_factor}")
+        logger.info(f"Related pin transition times [ns]: {related_pin_transition * time_unit_inv}")
 
     # TODO: Make time resolution parametrizable.
     time_resolution_seconds = float(args.time_step)
@@ -762,9 +763,9 @@ def main():
                     cell_conf=cell_conf
                 )
 
-                input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_scale_factor
-                input_pin_group['fall_capacitance'] = result['fall_capacitance'] * capacitance_unit_scale_factor
-                input_pin_group['capacitance'] = result['capacitance'] * capacitance_unit_scale_factor
+                input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_inv
+                input_pin_group['fall_capacitance'] = result['fall_capacitance'] * capacitance_unit_inv
+                input_pin_group['capacitance'] = result['capacitance'] * capacitance_unit_inv
         else:
             logger.warning("Skip measuring input capacitances.")
 
@@ -804,8 +805,8 @@ def main():
 
                     # Get the table indices.
                     # TODO: get correct index/variable mapping from liberty file.
-                    index_1 = result['total_output_net_capacitance'] * capacitance_unit_scale_factor
-                    index_2 = result['input_net_transition'] * time_unit_scale_factor
+                    index_1 = result['total_output_net_capacitance'] * capacitance_unit_inv
+                    index_2 = result['input_net_transition'] * time_unit_inv
 
                     # Create template tables.
                     template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
@@ -821,7 +822,7 @@ def main():
 
                         table.set_array('index_1', index_1)
                         table.set_array('index_2', index_2)
-                        table.set_array('values', result[table_name] * time_unit_scale_factor)
+                        table.set_array('values', result[table_name] * time_unit_inv)
 
                         timing_tables.append(table)
 
@@ -1007,8 +1008,8 @@ def main():
 
                     # Get the table indices.
                     # TODO: get correct index/variable mapping from liberty file.
-                    index_1 = result['related_pin_transition'] * time_unit_scale_factor
-                    index_2 = result['constrained_pin_transition'] * time_unit_scale_factor
+                    index_1 = result['related_pin_transition'] * time_unit_inv
+                    index_2 = result['constrained_pin_transition'] * time_unit_inv
                     # TODO: remember all necessary templates and create template tables.
 
                     input_pin_group = new_cell_group.get_group('pin', data_in_pin)
@@ -1027,7 +1028,7 @@ def main():
                         rise_constraint.set_array('index_2', index_2)
                         rise_constraint.set_array(
                             'values',
-                            result[f'{constraint_type}_rise_constraint'] * time_unit_scale_factor
+                            result[f'{constraint_type}_rise_constraint'] * time_unit_inv
                         )
 
                         fall_constraint = Group('fall_constraint', args=[table_template_name])
@@ -1035,7 +1036,7 @@ def main():
                         fall_constraint.set_array('index_2', index_2)
                         fall_constraint.set_array(
                             'values',
-                            result[f'{constraint_type}_fall_constraint'] * time_unit_scale_factor
+                            result[f'{constraint_type}_fall_constraint'] * time_unit_inv
                         )
 
                         timing_group = Group(
