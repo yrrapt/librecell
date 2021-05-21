@@ -333,7 +333,7 @@ def _get_conductivity_conditions(cmos_graph: nx.MultiGraph,
     gate_input_nets = find_input_gates(cmos_graph)
     # Find input nets that also connect to a source or drain, i.e. to a transmission gate.
     transmission_input_pins = inputs - gate_input_nets
-    logger.info("Input pins to a transmission gate: {}".format(transmission_input_pins))
+    logger.debug("Input pins to a transmission gate: {}".format(transmission_input_pins))
     if len(transmission_input_pins) < 2:
         logger.warning("`inputs` is expected to also contain VDD and GND.")
 
@@ -425,9 +425,9 @@ def complex_cmos_graph_to_formula(cmos_graph: nx.MultiGraph,
     # Consider all nodes as input variables that are either connected to transistor
     # gates only or are specified by the caller.
     deduced_input_pins = find_input_gates(cmos_graph)
-    logger.info("Deduced input pins: {}".format(deduced_input_pins))
+    logger.debug("Deduced input pins: {}".format(deduced_input_pins))
     inputs = deduced_input_pins | input_pins
-    logger.info("All input pins: {}".format(deduced_input_pins))
+    logger.debug("All input pins: {}".format(deduced_input_pins))
 
     # Set of nodes where there is no boolean formula known yet.
     unknown_nodes = {n for n in output_nodes}
@@ -761,7 +761,7 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         :param formulas:
         :return:
         """
-        logger.info("Derive memory from output net: {}".format(memory_output_net))
+        logger.debug("Derive memory from output net: {}".format(memory_output_net))
         # print("Derive memory from output net: {}".format(memory_output_net))
         memory_output_resolved = _resolve_intermediate_variables(formulas, inputs, memory_output_net)
         # print(formulas)
