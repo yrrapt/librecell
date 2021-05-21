@@ -965,6 +965,21 @@ def main():
             if related_pin_transition is None:
                 abort("Need to specify 'related-pin-transition' for the clock pin.")
 
+            # Create or update the 'ff' group.
+            ff_group = new_cell_group.get_groups('ff')
+            if not ff_group:
+                ff_group = Group('ff')
+                new_cell_group.groups.append(ff_group)
+
+            # Store content of 'ff' group.
+            ff_group.args = [str(cell_type.internal_state), str(cell_type.internal_state)+"_INV"]
+            ff_group.set_boolean_function('clocked_on', cell_type.clocked_on)
+            ff_group.set_boolean_function('next_state', cell_type.next_state)
+            if cell_type.async_preset:
+                ff_group.set_boolean_function('preset', cell_type.async_preset)
+            if cell_type.async_preset:
+                ff_group.set_boolean_function('clear', cell_type.async_clear)
+
             # Find clock pin.
             clock_signals = list(cell_type.clocked_on.atoms(sympy.Symbol))
             if len(clock_signals) != 1:
