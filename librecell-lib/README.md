@@ -25,6 +25,8 @@ Characterize a single cell:
 ```sh
 lctime --liberty ~/FreePDK45/osu_soc/lib/files/gscl45nm.lib \
 	--include ~/FreePDK45/osu_soc/lib/files/gpdk45nm.m \
+    --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
+    --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
 	--spice ~/FreePDK45/osu_soc/lib/source/netlists/AND2X1.pex.netlist \
 	--cell AND2X1 \
 	--output /tmp/and2x1.lib
@@ -34,11 +36,37 @@ Characterize multiple cells in the same run:
 ```sh
 lctime --liberty ~/FreePDK45/osu_soc/lib/files/gscl45nm.lib \
 	--include ~/FreePDK45/osu_soc/lib/files/gpdk45nm.m \
+    --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
+    --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
 	--spice ~/FreePDK45/osu_soc/lib/source/netlists/*.pex.netlist \
 	--cell INVX1 AND2X1 XOR2X1 \
 	--output /tmp/invx1_and2x1_xor2x1.lib
 ```
 
+### Cell recognition
+
+Cell types can be recognized automatically such that only a minimal
+liberty file needs to be supplied.
+
+```sh
+cd examples
+lctime --liberty template.lib \
+    --analize-cell-function \
+    --include gpdk45nm.m \
+    --spice INVX1.pex.netlist \
+    --cell INVX1 \
+    --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
+    --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
+    --output invx1.lib
+```
+
+### Sequential cells
+
+Characterization of sequential cells involves finding hold, setup, removal and recovery constraints.
+
+For an example see `examples/run_example_flip-flop.sh`.
+
+### Visualization
 
 Vizualize the result:
 ```sh
