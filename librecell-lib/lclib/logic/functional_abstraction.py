@@ -43,8 +43,10 @@ class CombinationalOutput:
     """
 
     def __init__(self, function: boolalg.Boolean, high_impedance: boolalg.Boolean):
-        self.function = function
-        self.high_impedance = high_impedance
+        self.function: boolalg.Boolean = function
+        "Boolean expression for the logic output."
+        self.high_impedance: boolalg.Boolean = high_impedance
+        "Boolean expression which tells when the output is in high-impedance state."
 
     def is_tristate(self):
         """
@@ -108,9 +110,12 @@ class AbstractCircuit:
         :param output_formulas: Dictionary that maps output symbols to their boolean formulas.
         :param latches: Dictionary that holds the memory objects for each signal that is driven by a memory/latch.
         """
-        self.output_pins = output_pins
-        self.outputs = output_formulas
-        self.latches = latches
+        self.output_pins: Set[sympy.Symbol] = output_pins
+        "Set of all output pins."
+        self.outputs: Dict[sympy.Symbol, CombinationalOutput] = output_formulas
+        "Dictionary that maps output symbols to their boolean formulas."
+        self.latches: Dict[boolalg.BooleanAtom, Memory] = latches
+        "Dictionary that holds the memory objects for each signal that is driven by a memory/latch."
 
     def is_sequential(self) -> bool:
         """
@@ -118,6 +123,21 @@ class AbstractCircuit:
         :return:
         """
         return len(self.latches) > 0
+
+    def get_primary_inputs(self) -> Set[sympy.Symbol]:
+        """
+        Find all input pins that are relevant for the outputs.
+        :return: Set of input pins.
+        """
+        pins = set()
+        for o, f in self.outputs.items():
+            pins.update(f.function.atoms(sympy.Symbol))
+            pins.update(f.function.atoms(sympy.Symbol))
+        for _, latch in self.latches.items():
+            pins.update(latch.write_condition.atoms(sympy.Symbol()))
+            pins.update(latch.data.atoms(sympy.Symbol()))
+            pins.update(latch.oscillation_condition.atoms(sympy.Symbol()))
+        return pins
 
 
 def simplify_logic(f: boolalg.Boolean, force: bool = True) -> boolalg.Boolean:

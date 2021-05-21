@@ -450,7 +450,7 @@ def main():
         # This is used for a formal analysis of the network.
         transistor_graph = _transistors2multigraph(transistors_abstract)
 
-        # Detect input nets.
+        # Detect input nets from the transistor netlist (if enabled).
         if args.analyze_cell_function:
             logger.debug("Detect input nets from the circuit.")
             detected_inputs = functional_abstraction.find_input_gates(transistor_graph)
@@ -464,19 +464,21 @@ def main():
             # Same check for pins declared in liberty template.
             inputs_missing_in_liberty = detected_inputs - all_liberty_pins
             if inputs_missing_in_liberty:
-                logger.info(f"The circuit has gate nets that must be inputs "
+                logger.warning(f"The circuit has gate nets that must be inputs "
                             f"but are not declared as a pin in the liberty template: "
                             f"{', '.join(sorted(inputs_missing_in_liberty))}")
 
             # Add detected input pins.
             diff = detected_inputs - set(input_pins)
-            logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
-            input_pins.extend(detected_inputs)
+            if diff:
+                logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
+                input_pins.extend(diff)
 
             # Find pins that are defined in the SPICE circuit but are not inputs nor power.
             maybe_outputs = all_spice_pins - set(input_pins) - set(power_pins)
-            logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
-            output_pins.extend(maybe_outputs)
+            if maybe_outputs:
+                logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
+                output_pins.extend(maybe_outputs)
 
         # Sanity check.
         if len(input_pins) == 0:
@@ -597,6 +599,8 @@ def main():
             else:
                 logger.info("Detected purely combinational circuit.")
                 detected_cell_type = Combinational()
+                detected_cell_type.outputs = abstracted_circuit.output_pins
+                detected_cell_type.inputs = abstracted_circuit.get_primary_inputs()
                 if cell_type is None:
                     cell_type = Combinational()
 

@@ -29,6 +29,14 @@ class CellType:
     A `CellType` object should contain information that is necessary for the characterization of this type of cells.
     """
 
+    def __init__(self):
+        self.power_down_function: boolalg.Boolean = None
+        "Boolean expression that tells when the cell is not powered."
+        self.inputs: List[sympy.Symbol] = []
+        "Input pins of the cell."
+        self.outputs: Dict[sympy.Symbol, boolalg.Boolean] = dict()
+        "Dictionary with output pins mapped to their boolean expressions."
+
     def human_readable_description(self) -> str:
         raise NotImplementedError()
 
@@ -39,14 +47,14 @@ class Combinational(CellType):
     """
 
     def __init__(self):
-        self.inputs: List[sympy.Symbol] = None
-        self.outputs: List[sympy.Symbol] = None
-        self.output_functions: Dict[sympy.Symbol, boolalg.Boolean] = None
+        super().__init__()
 
 
 class Latch(CellType):
 
     def __init__(self):
+        super().__init__()
+
         self.data_in = None
         self.enable = None  # Write condition / clock.
         self.clear = None  # Clear condition.
@@ -70,6 +78,7 @@ class SingleEdgeDFF(CellType):
     """
 
     def __init__(self):
+        super().__init__()
 
         self.internal_state: sympy.Symbol = None
         """
@@ -96,6 +105,7 @@ class SingleEdgeDFF(CellType):
 
         self.async_clear: boolalg.Boolean = sympy.false
         "Clear condition."
+
     def __str__(self):
         return self.human_readable_description()
 
