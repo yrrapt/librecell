@@ -971,7 +971,7 @@ def main():
                 logger.error(f"Expect exactly one clock signal. Got {clock_signals}")
             clock_signal = clock_signals[0]
             # Find clock polarity:
-            clock_edge_polarity = clock_signal.subs({clock_signal: True}) == True
+            clock_edge_polarity = cell_type.clocked_on.subs({clock_signal: True})
             clock_pin = str(clock_signal.name)
 
             assert isinstance(clock_pin, str)
@@ -989,7 +989,7 @@ def main():
                 logger.info(f"FF in normal operation mode when: {model}")
             preset_clear_input = no_preset_no_clear[0]
             if len(no_preset_no_clear) > 1:
-                logger.warning(f"Multiple possiblities found for disabling preset and clear. "
+                logger.warning(f"Multiple possibilities found for disabling preset and clear. "
                                f"Take the first one ({preset_clear_input}).")
 
             # Find all data pins that are relevant for the internal state of the flip-flop.
