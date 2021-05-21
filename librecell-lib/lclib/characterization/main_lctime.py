@@ -75,8 +75,7 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
     """
 
     # Get information on pins from the liberty file.
-    input_pins, output_pins, output_functions_user, tristate_functions_user = \
-        liberty_util.get_pin_information(cell_group)
+    input_pins, outputs_user = liberty_util.get_pin_information(cell_group)
 
     ff_group = cell_group.get_groups("ff")
     latch_group = cell_group.get_groups("latch")
@@ -151,14 +150,18 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
     # power_down_function = cell_group.get_boolean_function('power_down_function')
     # cell_type.power_down_function = power_down_function
 
-    # Create description of output pins.
-    for name, function in output_functions_user.items():
-        t = sympy.false
-        if name in tristate_functions_user:
-            t = tristate_functions_user[name]
-        comb = CombinationalOutput(function, high_impedance=t)
+    # Copy description of output pins.
+    for name, output in outputs_user.items():
+        cell_type.outputs[sympy.Symbol(name)] = output
 
-        cell_type.outputs[sympy.Symbol(name)] = comb
+    input_pins = {sympy.Symbol(p) for p in input_pins}
+
+    inputs_found_in_outputs = {i for output in cell_type.outputs.values()
+                               for i in output.get_inputs()}
+    diff = inputs_found_in_outputs - input_pins
+    logger.warning(f"Some input pins are used but not declared in the liberty file: {sorted(diff)}")
+
+    cell_type.inputs = sorted(input_pins, key=str)
 
     return cell_type
 
@@ -516,12 +519,15 @@ def main():
             cell_group = select_cell(library, cell_name)
 
             # Determine type of cell (latch, flip-flop, combinational).
-            cell_type = recognize_cell_from_liberty(cell_group)
-        except Exception as e:
+            cell_type_liberty = recognize_cell_from_liberty(cell_group)
+            cell_type = cell_type_liberty
+        except KeyError as e:
             logger.warning(f"No cell group defined yet in liberty file: {cell_name}")
 
             if not args.analyze_cell_function:
                 abort("Cell is not defined in liberty. Enable cell recognition with --analyze.")
+
+            cell_type_liberty = Combinational()  # Default: Empty cell.
 
             # Cell group does not exist, so create it.
             logger.debug("Create empty cell group.")
@@ -538,10 +544,12 @@ def main():
         logger.info("Netlist: {}".format(netlist_file))
 
         # Get information on pins from the liberty file.
-        input_pins, output_pins, output_functions_user, tristate_functions_user = \
-            liberty_util.get_pin_information(cell_group)
+        input_pins = [str(s) for s in cell_type_liberty.inputs]
+        output_pins = [str(s) for s in cell_type_liberty.outputs.keys()]
 
         liberty_pins = set(input_pins) | set(output_pins)
+        # Convert to strings.
+        liberty_pins = {str(p) for p in liberty_pins}
 
         # Create a lookup table to reconstruct lower/upper case letters.
         # This is a workaround. The SPICE parser converts everything to uppercase.
@@ -557,7 +565,7 @@ def main():
             return case_lookup_table.get(pin.lower(), pin)
 
         logger.info(f"Input pins as defined in liberty: {input_pins}")
-        logger.info(f"Output pins as defined in liberty: {output_pins}")
+        logger.info(f"Output pins as defined in liberty: {sorted(cell_type_liberty.outputs.keys())}")
 
         # Load netlist of cell
         # TODO: Load all netlists at the beginning.
@@ -575,7 +583,7 @@ def main():
 
         # Get pin ordering of spice circuit.
         spice_ports = get_subcircuit_ports(netlist_file, cell_name)
-        logger.debug(f"SPICE subcircuit ports: {spice_ports}")
+        logger.info(f"SPICE subcircuit ports: {spice_ports}")
         io_pins = net_util.get_io_pins(cell_pins)
 
         if len(transistors_abstract) == 0:
@@ -604,6 +612,7 @@ def main():
                 all_liberty_pins.add(complementary_pin)
         all_spice_pins = set(cell_pins)
         pins_not_in_spice = sorted(all_liberty_pins - all_spice_pins)
+
         if pins_not_in_spice:
             abort(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
 
@@ -749,15 +758,15 @@ def main():
             # output_functions_symbolic = output_functions_deduced.copy()
 
             # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
-            for output_name, function in output_functions_user.items():
-                output_symbol = sympy.Symbol(output_name)
-                logger.info("User supplied output function: {} = {}".format(output_name, function))
-                assert output_name in output_functions_deduced, "No function has been deduced for output pin '{}'.".format(
-                    output_name)
+            for output_symbol, output in cell_type_liberty.outputs.items():
+                output_name = str(output_symbol)
+                logger.info(f"User supplied output function: {output_name} = {output_name}")
+                print(output_functions_deduced)
+                assert output_symbol in output_functions_deduced, f"No function has been deduced for output pin '{output_name}'."
                 # Consistency check:
                 # Verify that the deduced output formula is equal to the one defined in the liberty file.
                 logger.info("Check equality of boolean function in liberty file and derived function.")
-                equal = functional_abstraction.bool_equals(function, output_functions_deduced[output_symbol].function)
+                equal = functional_abstraction.bool_equals(output.function, output_functions_deduced[output_symbol].function)
                 if not equal:
                     msg = "User supplied function does not match the deduced function for pin '{}'".format(output_name)
                     logger.error(msg)
@@ -765,10 +774,10 @@ def main():
                 if equal:
                     # Take the function defined by the liberty file.
                     # This might be desired because it is in another form (CND, DNF,...).
-                    cell_type.outputs[output_symbol] = function
+                    cell_type.outputs[output_symbol] = output
         else:
             # Skip functional abstraction and take the functions provided in the liberty file.
-            output_functions_symbolic = output_functions_user
+            # output_functions_symbolic = output_functions_user
             pass  # TODO
 
         # Convert deduced output functions into Python lambda functions.
@@ -991,8 +1000,8 @@ def main():
                               sympy.Symbol), "Internal flip-flop-state variable is not defined."
 
             # Find all output pins that depend on the internal state.
-            data_out_pins: List[sympy.Symbol] = [name for name, formula in cell_type.outputs.items()
-                                                 if cell_type.internal_state in formula.atoms()
+            data_out_pins: List[sympy.Symbol] = [name for name, output in cell_type.outputs.items()
+                                                 if cell_type.internal_state in output.function.atoms()
                                                  ]
             logger.debug(f"Output pins that depend on the internal state: {data_out_pins}")
 
@@ -1028,7 +1037,8 @@ def main():
 
                     # Find an output pin such that the internal state is observable.
                     observer_outputs = []  # Output pins that can observe the internal memory state.
-                    for output_pin, function in cell_type.outputs.items():
+                    for output_pin, output in cell_type.outputs.items():
+                        function = output.function
                         # Substitute with constant input pins.
                         function = function.subs(other_pin_values)
 

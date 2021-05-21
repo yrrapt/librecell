@@ -19,22 +19,21 @@
 #
 from liberty.types import Group
 import logging
-from typing import Optional
+from typing import Optional, Tuple, Dict, List
 import numpy as np
+from ..logic.types import CombinationalOutput
 
 logger = logging.getLogger(__name__)
 
 
-def get_pin_information(cell_group: Group):
+def get_pin_information(cell_group: Group) -> Tuple[List[str], Dict[str, CombinationalOutput]]:
     """
     Get a list of input pins, output pins and the logic functions of output pins.
     :param cell_group:
     :return: (list of input pins, list of output pins, Dict[output pin, logic function], Dict[output pin, tri-state function])
     """
     input_pins = []
-    output_pins = []
-    output_functions = dict()
-    output_tri_state_functions = dict()
+    outputs = dict()
     for pin_group in cell_group.get_groups('pin'):
         # Get pin name
         pin_name = pin_group.args[0]
@@ -44,25 +43,19 @@ def get_pin_information(cell_group: Group):
 
         # Get boolean function of pin (for outputs).
         expr = pin_group.get_boolean_function('function')
-        if expr is not None:
-            output_functions[pin_name] = expr
-        else:
+        if expr is None:
             # Assert that for all output pins the logic function is defined.
             if direction == 'output':
-                msg = 'Output pin has no function defined: {}'.format(pin_name)
-                logger.info(msg)
-            expr = ''
+                msg = f'Output pin has no function defined: {pin_name}'
+                logger.warning(msg)
 
         # Get boolean expression for tri-state condition.
         tri_state = pin_group.get_boolean_function('three_state')
         if tri_state is not None:
-            output_tri_state_functions[pin_name] = tri_state
             if direction != 'output':
                 logger.error(f"Found non-output that with tri-state: {pin_name}")
 
-        logger.info("Pin '{}' {} {}".
-                    format(pin_name, direction, expr)
-                    )
+        logger.info(f"Pin '{pin_name}' {direction} {expr}")
 
         # Check that pin direction is defined.
         if direction is None:
@@ -72,11 +65,12 @@ def get_pin_information(cell_group: Group):
         if direction == 'input':
             input_pins.append(pin_name)
         elif direction == 'output':
-            output_pins.append(pin_name)
+            comb = CombinationalOutput(function=expr, high_impedance=tri_state)
+            outputs[pin_name] = comb
         else:
             logger.warning("Pin direction type not handled: {}".format(direction))
 
-    return input_pins, output_pins, output_functions, output_tri_state_functions
+    return input_pins, outputs
 
 
 def create_table_template_if_not_exists(library: Group,

@@ -108,7 +108,7 @@ class AbstractCircuit:
         pins = set()
         for o, f in self.outputs.items():
             pins.update(f.function.atoms(sympy.Symbol))
-            pins.update(f.function.atoms(sympy.Symbol))
+            pins.update(f.high_impedance.atoms(sympy.Symbol))
         for _, latch in self.latches.items():
             pins.update(latch.write_condition.atoms(sympy.Symbol()))
             pins.update(latch.data.atoms(sympy.Symbol()))

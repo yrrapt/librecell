@@ -1381,7 +1381,7 @@ def measure_flip_flop_setup_hold(
     logger.info(f"max delays (fall): {min_hold_delay_fall}")
 
     # Find dependent setup time.
-    logger.info("Measure dependent minimal hold time.")
+    logger.info("Measure dependent minimal setup time.")
     dependent_setup_time_rise, dependent_setup_delay_rise = \
         find_min_setup(rising_data_edge=True,
                        hold_time=min_hold_time_uncond_rise + hold_margin)

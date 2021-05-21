@@ -405,12 +405,13 @@ class DFFExtractor:
         logger.debug(f"Flip-flop output data: {dff.next_state}")
 
         # Find combinational output formulas. They may depend on the internal state of the flip-flop.
-        ff_output_functions = dict()
+        ff_outputs = dict()
         for output_net in output_nets:
 
             # Find combinational function of the output net.
             # It should be a function of the primary inputs and of latch outputs.
             output_function = c.outputs[output_net].function
+            high_impedance = c.outputs[output_net].high_impedance
 
             # Find data that gets written into the flip-flop in normal operation mode.
             output_formula = simplify_with_assumption(ff_normal_condition, output_function)
@@ -419,12 +420,16 @@ class DFFExtractor:
             output_formula = output_formula.subs({
                 ff_internal_state_node: ff_internal_state_name
             })
+            high_impedance = high_impedance.subs({
+                ff_internal_state_node: ff_internal_state_name
+            })
 
             logger.debug(f"Output: {output_net} = {output_formula}")
-            ff_output_functions[output_net] = output_formula
+            comb = CombinationalOutput(function=output_formula, high_impedance=high_impedance)
+            ff_outputs[output_net] = comb
 
         # Store the output functions.
-        dff.outputs = ff_output_functions
+        dff.outputs = ff_outputs
 
         # if len(ff_output_data) == 1:
         #     # FF has only one output.

@@ -20,6 +20,8 @@
 
 from sympy.logic import satisfiable
 from sympy.logic import boolalg
+import sympy
+from typing import Set
 
 
 class CombinationalOutput:
@@ -39,7 +41,21 @@ class CombinationalOutput:
         Check if the high-impedance condition is satisfiable.
         :return: bool
         """
+        if self.high_impedance is None:
+            return False
         return satisfiable(self.high_impedance)
+
+    def get_inputs(self) -> Set[sympy.Symbol]:
+        """
+        Find all input pins that are relevant for the outputs.
+        :return: Set of input pins.
+        """
+        pins = set()
+        if self.function is not None:
+            pins.update(self.function.atoms(sympy.Symbol))
+        if self.high_impedance is not None:
+            pins.update(self.high_impedance.atoms(sympy.Symbol))
+        return pins
 
     def __str__(self):
         return "CombinationalOutput(f = {}, Z = {})".format(self.function, self.high_impedance)

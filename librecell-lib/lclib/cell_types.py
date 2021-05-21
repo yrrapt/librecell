@@ -98,7 +98,7 @@ class SingleEdgeDFF(CellType):
         self.next_state: boolalg.Boolean = sympy.false
         "Next state that follows a clock edge."
 
-        self.outputs: Dict[sympy.Symbol, boolalg.Boolean] = dict()
+        self.outputs: Dict[sympy.Symbol, CombinationalOutput] = dict()
         """
         Boolean functions for all outputs. The output functions
         are functions of the primary inputs and of the `internal_state` variable.
