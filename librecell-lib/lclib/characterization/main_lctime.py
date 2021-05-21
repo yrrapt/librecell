@@ -66,6 +66,16 @@ def _boolean_to_lambda(boolean: boolalg.Boolean):
     return f
 
 
+def abort(message: str, exit_code=1):
+    """
+    Exit the program due to an error.
+    :param message: Error message.
+    :param exit_code:
+    """
+    logger.error(message)
+    exit(exit_code)
+
+
 def main():
     """
     Command-line tool for cell characterization.
@@ -183,16 +193,13 @@ def main():
         for sub in parser.subcircuits:
             if sub.name in netlist_file_table:
                 # Abort if a sub circuit is defined in multiple netlists.
-                logger.warning(
-                    f"Sub-circuit '{sub.name}' is defined in multiple netlists: {netlist_file_table[sub.name]}, {netlist_file}")
-                exit(1)
+                abort(f"Sub-circuit '{sub.name}' is defined in multiple netlists: {netlist_file_table[sub.name]}, {netlist_file}")
             netlist_file_table[sub.name] = netlist_file
 
     # Test if all cell names can be found in the netlist files.
     cell_names_not_found = set(cell_names) - netlist_file_table.keys()
     if cell_names_not_found:
-        logger.error("Cell name not found in netlists: {}".format(", ".join(cell_names_not_found)))
-        exit(1)
+        abort("Cell name not found in netlists: {}".format(", ".join(cell_names_not_found)))
 
     # Load liberty file.
     lib_file = args.liberty
@@ -303,9 +310,7 @@ def main():
     # Sanitize the library arguments.
     for lib, raw in zip(spice_libraries, spice_libraries_raw):
         if len(lib) != 2 or not lib[0] or not lib[1]:
-            logger.error('Library statements must be of the format "/path/to/library libraryName". Found: "{}".'
-                         .format(raw))
-            exit(1)
+            abort(f'Library statements must be of the format "/path/to/library libraryName". Found: "{raw}".')
 
         path, name = lib
         if not os.path.isfile(path):
@@ -314,8 +319,7 @@ def main():
 
     # Exit if some input arguments were obviously invalid.
     if input_argument_error:
-        logger.info("Exit because of invalid arguments.")
-        exit(1)
+        abort("Exit because of invalid arguments.")
 
     # .LIB statements
     library_statements = [f".LIB {path} {name}" for path, name in spice_libraries]
@@ -345,8 +349,8 @@ def main():
     time_resolution_seconds = float(args.time_step)
     logger.info(f"Time resolution = {time_resolution_seconds}s")
     if time_resolution_seconds <= 0:
-        logger.error('Time step must be larger than zero.')
-        exit(1)
+        abort('Time step must be larger than zero.')
+
     if time_resolution_seconds > 1e-9:
         logger.warning(f"Timestep is larger than 1ns: {time_resolution_seconds}s")
 
@@ -410,13 +414,12 @@ def main():
 
         # Get pin ordering of spice circuit.
         spice_ports = get_subcircuit_ports(netlist_file, cell_name)
-        logger.debug(f"Spice subcircuit ports: {spice_ports}")
+        logger.debug(f"SPICE subcircuit ports: {spice_ports}")
         io_pins = net_util.get_io_pins(cell_pins)
 
         if len(transistors_abstract) == 0:
             msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
-            logger.error(msg)
-            exit(1)
+            abort(msg)
 
         # Detect power pins.
         # TODO: don't decide based only on net name.
@@ -441,8 +444,7 @@ def main():
         all_spice_pins = set(cell_pins)
         pins_not_in_spice = sorted(all_liberty_pins - all_spice_pins)
         if pins_not_in_spice:
-            logger.error(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
-            exit(1)
+            abort(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
 
         # Convert the transistor network into its multi-graph representation.
         # This is used for a formal analysis of the network.
@@ -732,7 +734,7 @@ def main():
                         logger.info("Timing arc: {} -> {}".format(related_pin, output_pin))
 
                     # Get timing sense of this arc.
-                    timing_sense = str(is_unate_in_xi(output_functions[output_pin], related_pin).name)
+                    timing_sense = str(is_unate_in_xi(output_functions[output_pin], related_pin).name).lower()
                     logger.info("Timing sense: {}".format(timing_sense))
 
                     result = characterize_comb_cell(
@@ -788,8 +790,7 @@ def main():
             logger.info("Characterize single-edge triggered flip-flop.")
 
             if related_pin_transition is None:
-                logger.error("Need to specify 'related-pin-transition' for the clock pin.")
-                exit(1)
+                abort("Need to specify 'related-pin-transition' for the clock pin.")
 
             # Find clock pin.
             clock_signals = list(cell_type.clocked_on.atoms(sympy.Symbol))
@@ -1028,8 +1029,11 @@ def main():
         return new_cell_group
 
     # Characterize cells in parallel.
-    new_cell_groups = joblib.Parallel(n_jobs=-1, prefer='threads') \
-        (joblib.delayed(characterize_cell)(cell_name) for cell_name in cell_names)
+    # new_cell_groups = joblib.Parallel(n_jobs=-1, prefer='threads') \
+    #     (joblib.delayed(characterize_cell)(cell_name) for cell_name in cell_names)
+
+    # Characterize cells sequentially.
+    new_cell_groups = [characterize_cell(cell_name) for cell_name in cell_names]
 
     for new_cell_group in new_cell_groups:
         new_library.groups.append(new_cell_group)
