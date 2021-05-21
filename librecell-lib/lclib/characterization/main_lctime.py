@@ -66,6 +66,60 @@ def _boolean_to_lambda(boolean: boolalg.Boolean):
     return f
 
 
+def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF, Combinational]:
+    """
+    Analyze the liberty group and derive the type of the cell.
+    :param cell_group:
+    :return:
+    """
+    ff_group = cell_group.get_groups("ff")
+    latch_group = cell_group.get_groups("latch")
+
+    if ff_group and latch_group:
+        logger.error("Cell contains a 'ff' and 'latch' description.")
+        assert False, "Cannot characterize cells with both 'ff' and 'latch'."
+    elif ff_group:
+        if len(ff_group) != 1:
+            assert False, "Cannot characterize cells with more than one 'ff' group."
+        logger.info("'ff' group found. Cell is expected to be a flip-flop.")
+        ff_group = ff_group[0]
+        assert isinstance(ff_group, Group)
+
+        # Get state names.
+        iq, iqn = ff_group.args
+        clocked_on = ff_group.get_boolean_function('clocked_on')
+        next_state = ff_group.get_boolean_function('next_state')
+
+        clear = ff_group.get_boolean_function('clear')
+        preset = ff_group.get_boolean_function('preset')
+
+        # clear_preset_var1 = ff_group.get_boolean_function('clear_preset_var1')
+        # clear_preset_var2 = ff_group.get_boolean_function('clear_preset_var2')
+
+        clocked_on_also = ff_group.get_boolean_function('clocked_on_also')
+        power_down_function = ff_group.get_boolean_function('power_down_function')
+
+        cell_type = SingleEdgeDFF()
+        cell_type.power_down_function = power_down_function
+        cell_type.internal_state = sympy.Symbol(iq)
+        cell_type.clocked_on = clocked_on
+        cell_type.next_state = next_state
+        cell_type.async_preset = preset
+        cell_type.async_clear = clear
+        cell_type.outputs = {sympy.Symbol(name): function for name, function in output_functions_user.items()}
+
+    elif latch_group:
+        if len(latch_group) != 1:
+            assert False, "Cannot characterize cells with more than one 'latch' group."
+        logger.info("'latch' group found. Cell is expected to be a latch.")
+        cell_type = Latch()
+    else:
+        # No sequential element.
+        cell_type = Combinational()
+
+    return cell_type
+
+
 def abort(message: str, exit_code=1):
     """
     Exit the program due to an error.
@@ -417,11 +471,22 @@ def main():
         netlist_file = netlist_file_table[cell_name]
         try:
             cell_group = select_cell(library, cell_name)
+
+            # Determine type of cell (latch, flip-flop, combinational).
+            cell_type = recognize_cell_from_liberty(cell_group)
         except Exception as e:
             logger.warning(f"No cell group defined yet in liberty file: {cell_name}")
-            # Create an empty cell group.
+
+            if not args.analyze_cell_function:
+                abort("Cell is not defined in liberty. Enable cell recognition with --analyze.")
+
+            # Cell group does not exist, so create it.
             logger.debug("Create empty cell group.")
             cell_group = Group(group_name='cell', args=[cell_name])
+            library.groups.append(cell_group)
+
+            # The liberty did not define anything about this cell.
+            cell_type = None
 
         # Check that the name matches.
         assert cell_group.args == [cell_name], "Cell name does not match."  # This should not happen.
@@ -543,6 +608,7 @@ def main():
             assert False, msg
 
         # Extract differential pairs from liberty.
+        # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
         logger.debug("Load complementary pins from liberty.")
         differential_inputs_liberty = dict()
         for pin in cell_group.get_groups("pin"):
@@ -559,6 +625,7 @@ def main():
         else:
             differential_inputs_from_pattern = dict()
 
+        # Merge the differential pairs provided from the user with the pairs detected from the liberty file.
         differential_inputs_liberty.update(differential_inputs_from_pattern)
         differential_inputs = differential_inputs_liberty
 
@@ -577,51 +644,7 @@ def main():
         # Find all input pins that are not inverted inputs of a differential pair.
         inverted_pins = differential_inputs.values()
         input_pins_non_inverted = [p for p in input_pins if p not in inverted_pins]
-
-        # Find from liberty if the cell is sequential.
-        cell_type = None
-        ff_group = cell_group.get_groups("ff")
-        latch_group = cell_group.get_groups("latch")
-        if ff_group and latch_group:
-            logger.error("Cell contains a 'ff' and 'latch' description.")
-            assert False, "Cannot characterize cells with both 'ff' and 'latch'."
-        elif ff_group:
-            if len(ff_group) != 1:
-                assert False, "Cannot characterize cells with more than one 'ff' group."
-            logger.info("'ff' group found. Cell is expected to be a flip-flop.")
-            ff_group = ff_group[0]
-            assert isinstance(ff_group, Group)
-
-            # Get state names.
-            iq, iqn = ff_group.args
-            clocked_on = ff_group.get_boolean_function('clocked_on')
-            next_state = ff_group.get_boolean_function('next_state')
-
-            clear = ff_group.get_boolean_function('clear')
-            preset = ff_group.get_boolean_function('preset')
-
-            # clear_preset_var1 = ff_group.get_boolean_function('clear_preset_var1')
-            # clear_preset_var2 = ff_group.get_boolean_function('clear_preset_var2')
-
-            clocked_on_also = ff_group.get_boolean_function('clocked_on_also')
-            power_down_function = ff_group.get_boolean_function('power_down_function')
-
-            cell_type = SingleEdgeDFF()
-            cell_type.internal_state = sympy.Symbol(iq)
-            cell_type.clocked_on = clocked_on
-            cell_type.next_state = next_state
-            cell_type.async_preset = preset
-            cell_type.async_clear = clear
-            cell_type.outputs = {sympy.Symbol(name): function for name, function in output_functions_user.items()}
-
-        elif latch_group:
-            if len(latch_group) != 1:
-                assert False, "Cannot characterize cells with more than one 'latch' group."
-            logger.info("'latch' group found. Cell is expected to be a latch.")
-            cell_type = Latch()
-        else:
-            # No sequential element.
-            cell_type = Combinational()
+        "All input pins that are not inverted inputs of a differential pair"
 
         if args.analyze_cell_function:
             # Derive boolean functions for the outputs from the netlist.
@@ -654,7 +677,7 @@ def main():
                 if cell_type is None:
                     cell_type = Combinational()
 
-            if cell_type is None:
+            if cell_type is None or len(cell_group.groups) == 0:
                 cell_type = detected_cell_type
             else:
                 # Sanity check: Detected cell type (combinational, latch, ff) must match with the liberty file.
@@ -680,7 +703,8 @@ def main():
                 logger.info("User supplied output function: {} = {}".format(output_name, function))
                 assert output_name in output_functions_deduced, "No function has been deduced for output pin '{}'.".format(
                     output_name)
-                # Consistency check: verify that the deduced output formula is equal to the one defined in the liberty file.
+                # Consistency check:
+                # Verify that the deduced output formula is equal to the one defined in the liberty file.
                 logger.info("Check equality of boolean function in liberty file and derived function.")
                 equal = functional_abstraction.bool_equals(function, output_functions_deduced[output_name])
                 if not equal:
@@ -719,13 +743,13 @@ def main():
         for pin in input_pins_non_inverted:
             pin_group = new_cell_group.get_group('pin', pin)
             if 'direction' not in pin_group:
-                pin_group['direction'] = ['input']
+                pin_group['direction'] = 'input'
 
         # Set 'direction' attribute of output pins.
         for pin in output_pins:
             pin_group = new_cell_group.get_group('pin', pin)
             if 'direction' not in pin_group:
-                pin_group['direction'] = ['output']
+                pin_group['direction'] = 'output'
 
         # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
         for input_pin in input_pins_non_inverted:
