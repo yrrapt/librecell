@@ -51,6 +51,21 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+class DuplicateFilter(logging.Filter):
+    """
+    Hide duplicated log messages.
+    """
+
+    def __init__():
+        super().__init__()
+        self.last_log = None
+
+    def filter(self, record):
+        current_log = (record.module, record.levelno, record.getMessage())
+        if current_log != self.last_log:
+            self.last_log = current_log
+            return True
+        return False
 
 def _merge_all_layers(shapes):
     # TODO: Move into LcLayout class.

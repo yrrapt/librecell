@@ -42,6 +42,9 @@ def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
     # Create nodes and vias.
     G = nx.Graph()
 
+    # Keep track of missing weights to output a log warning.
+    missing_via_weights = set()
+
     # Create nodes on routing layers.
     for layer, directions in tech.routing_layers.items():
         for p in grid:
@@ -59,7 +62,7 @@ def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
             if weight is None:
                 weight = tech.via_weights.get((l2, l1))
                 if weight is None:
-                    logger.warning(f"No via weight specified from layer '{l1}' to '{l2}'.")
+                    missing_via_weights.add((l1, l2))
                     weight = 0
 
             multi_via = tech.multi_via.get((l1, l2))
@@ -72,6 +75,9 @@ def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
                        multi_via=multi_via,
                        layer=via_layer
                        )
+
+    for (l1, l2) in missing_via_weights:
+        logger.warning(f"No via weight specified from layer '{l1}' to '{l2}'.")
 
     # Create intra layer routing edges.
     for layer, directions in tech.routing_layers.items():
@@ -332,7 +338,7 @@ def embed_transistor_terminal_nodes(G: nx.Graph,
             for t in ts:
                 layer, (x, y) = t
 
-                logger.info(f"Terminal node {net} {layer} {t}")
+                logger.debug(f"Terminal node {net} {layer} {t}")
 
                 # Insert terminal into G.
                 next_x = grid_round(x, tech.routing_grid_pitch_x, tech.grid_offset_x)
