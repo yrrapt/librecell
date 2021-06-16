@@ -84,7 +84,7 @@ def characterize_input_capacitances(
 
     # Load include files.
     for setup in setup_statements:
-        logger.debug("Setup statement: ", setup)
+        logger.debug(f"Setup statement: {setup}")
     setup_statements_string = "\n".join(setup_statements)
 
     # Add output load capacitance. Right now this is 0F.
