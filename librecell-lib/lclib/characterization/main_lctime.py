@@ -946,10 +946,10 @@ def main():
                         timing_tables.append(table)
 
                     # Create the liberty timing group.
-                    timing_attributes = {
-                        'related_pin': [EscapedString(related_pin)],
-                        'timing_sense': [timing_sense]
-                    }
+                    timing_attributes = [
+                        Attribute('related_pin', [EscapedString(related_pin)]),
+                        Attribute('timing_sense', [timing_sense])
+                    ]
 
                     timing_group = Group(
                         'timing',
@@ -1176,10 +1176,10 @@ def main():
 
                         timing_group = Group(
                             'timing',
-                            attributes={
-                                'timing_type': [f'{constraint_type}_{clock_edge}'],
-                                'related_pin': [EscapedString(clock_pin)]
-                            },
+                            attributes=[
+                                Attribute('timing_type', [f'{constraint_type}_{clock_edge}']),
+                                Attribute('related_pin', [EscapedString(clock_pin)])
+                            ],
                             groups=[rise_constraint, fall_constraint]
                         )
 

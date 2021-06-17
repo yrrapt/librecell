@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-from liberty.types import Group
+from liberty.types import Group, Attribute
 import logging
 from typing import Optional, Tuple, Dict, List
 import numpy as np
@@ -111,12 +111,12 @@ def create_table_template_if_not_exists(library: Group,
 
     else:
         # Create table.
-        attributes = {
-            'variable_1': [variable1]
-        }
+        attributes = [
+            Attribute('variable_1', [variable1])
+        ]
         if m > 1:
             assert variable2 is not None
-            attributes['variable_2'] = [variable2]
+            attributes.append(Attribute('variable_2', [variable2]))
 
         table = Group(table_type,
                       args=[full_name],
