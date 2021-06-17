@@ -112,11 +112,11 @@ def create_table_template_if_not_exists(library: Group,
     else:
         # Create table.
         attributes = [
-            Attribute('variable_1', [variable1])
+            Attribute('variable_1', variable1)
         ]
         if m > 1:
             assert variable2 is not None
-            attributes.append(Attribute('variable_2', [variable2]))
+            attributes.append(Attribute('variable_2', variable2))
 
         table = Group(table_type,
                       args=[full_name],

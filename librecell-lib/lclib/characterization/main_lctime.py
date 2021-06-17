@@ -947,8 +947,8 @@ def main():
 
                     # Create the liberty timing group.
                     timing_attributes = [
-                        Attribute('related_pin', [EscapedString(related_pin)]),
-                        Attribute('timing_sense', [timing_sense])
+                        Attribute('related_pin', EscapedString(related_pin)),
+                        Attribute('timing_sense', timing_sense)
                     ]
 
                     timing_group = Group(
@@ -1177,8 +1177,8 @@ def main():
                         timing_group = Group(
                             'timing',
                             attributes=[
-                                Attribute('timing_type', [f'{constraint_type}_{clock_edge}']),
-                                Attribute('related_pin', [EscapedString(clock_pin)])
+                                Attribute('timing_type', f'{constraint_type}_{clock_edge}'),
+                                Attribute('related_pin', EscapedString(clock_pin))
                             ],
                             groups=[rise_constraint, fall_constraint]
                         )
