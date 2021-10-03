@@ -29,7 +29,7 @@ import os
 import tempfile
 from .util import *
 from .piece_wise_linear import *
-from .ngspice_subprocess import simulate_cell
+from .simulation_subprocess import simulate_cell
 from lccommon.net_util import get_subcircuit_ports
 
 import logging
@@ -94,7 +94,8 @@ def characterize_comb_cell(
     }[cfg.timing_corner]
 
     # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
+    setup_statements = cfg.setup_statements
+    setup_statements['include'] += [cell_conf.spice_netlist_file]
 
     # Get all input nets that are not toggled during a simulation run.
     logger.debug("Get all input nets that are not toggled during a simulation run.")
@@ -239,9 +240,9 @@ def characterize_comb_cell(
                 )
 
                 # Retrieve data.
-                supply_current = currents[cell_conf.supply_net]
-                input_voltage = voltages[related_pin]
-                output_voltage = voltages[output_pin]
+                supply_current = currents['v'+cell_conf.supply_net.lower()]
+                input_voltage = voltages[related_pin.lower()]
+                output_voltage = voltages[output_pin.lower()]
 
                 if cfg.debug_plots:
                     logger.debug("Create plot of waveforms: {}".format(sim_plot_file))

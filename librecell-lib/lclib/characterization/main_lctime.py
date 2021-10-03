@@ -222,7 +222,7 @@ def main():
     parser.add_argument('-o', '--output', required=True, metavar='LIBERTY_OUT', type=str, help='Output liberty file.')
 
     parser.add_argument('--workingdir', required=False, metavar='WORKDIR', type=str,
-                        help="Directory for ngspice simulation scripts and raw results.")
+                        help="Directory for simulation scripts and raw results.")
 
     parser.add_argument('--output-loads', required=True, metavar='CAPACITANCES', type=str,
                         help="List of output load capacitances for the cells. In pico Farads."
@@ -456,12 +456,13 @@ def main():
         abort("Exit because of invalid arguments.")
 
     # .LIB statements
-    library_statements = [f".LIB {path} {name}" for path, name in spice_libraries]
+    library_statements = spice_libraries
 
     # .INCLUDE statements
-    include_statements = [f".include {i}" for i in spice_includes]
+    include_statements = spice_includes
 
-    setup_statements = library_statements + include_statements
+    setup_statements = {'library'   :   library_statements,
+                        'include'   :   include_statements}
 
     # Setup array of output capacitances and input slews.
     output_capacitances = np.array([float(s.strip()) for s in args.output_loads.split(",")]) * 1e-12  # pF

@@ -29,10 +29,12 @@ from itertools import product
 
 from .util import *
 from .piece_wise_linear import *
-from .ngspice_subprocess import run_simulation
+from .simulation_subprocess import run_simulation
 from lccommon.net_util import get_subcircuit_ports
 import tempfile
 import logging
+
+from analog_sim.spice.generic import create_sim_object
 
 from scipy import interpolate
 
@@ -43,7 +45,8 @@ def characterize_input_capacitances(
         input_pins: List[str],
         active_pin: str,
         output_pins: List[str],
-        cell_conf: CellConfig
+        cell_conf: CellConfig,
+        simulator: str = 'ngspice'
 ):
     """
     Estimate the input capacitance of the `active_pin`.
@@ -56,6 +59,7 @@ def characterize_input_capacitances(
     :param active_pin: Name of the pin to be measured.
     :param output_pins: List of cell output pins.
     :param config: Parameters for the characterization.
+    :param simulator: Specify the simulator to use, defaults to ngspice
 
     """
 
@@ -79,13 +83,19 @@ def characterize_input_capacitances(
     vdd = cfg.supply_voltage
     logger.debug("Vdd: {} V".format(vdd))
 
-    # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
+    # create the simulation object
+    analog_sim_obj = create_sim_object(simulator)
 
-    # Load include files.
-    for setup in setup_statements:
-        logger.debug(f"Setup statement: {setup}")
-    setup_statements_string = "\n".join(setup_statements)
+    # Create a list of include files.
+    setup_statements_string = ''
+    for statement in cfg.setup_statements['library']:
+        setup_statements_string = "\n" + analog_sim_obj.netlist_library(statement)
+
+    for statement in cfg.setup_statements['include']:
+        setup_statements_string = "\n" + analog_sim_obj.netlist_include(statement)
+
+    setup_statements_string += "\n" + f".include {cell_conf.spice_netlist_file}"
+
 
     # Add output load capacitance. Right now this is 0F.
     output_load_statements = "\n".join((f"Cload_{p} {p} GND 0" for p in output_pins))

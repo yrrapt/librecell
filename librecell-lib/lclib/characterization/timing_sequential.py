@@ -1,4 +1,4 @@
-#
+    #
 # Copyright (c) 2019-2020 Thomas Kramer.
 #
 # This file is part of librecell 
@@ -26,7 +26,7 @@ import os
 import tempfile
 from itertools import count
 
-from .ngspice_subprocess import simulate_cell
+from .simulation_subprocess import simulate_cell
 
 from .util import *
 from lccommon.net_util import get_subcircuit_ports
