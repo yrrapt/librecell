@@ -83,7 +83,7 @@ def characterize_comb_cell(
 
     # TODO
     # Maximum simulation time.
-    time_max = cfg.time_step * 1e5
+    time_max = cfg.time_step * 1e4
 
     # Find function to summarize different timing arcs.
     # TODO: Make this directly parametrizable by caller.

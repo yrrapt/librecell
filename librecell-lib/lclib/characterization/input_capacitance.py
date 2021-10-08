@@ -29,7 +29,7 @@ from itertools import product
 
 from .util import *
 from .piece_wise_linear import *
-from .simulation_subprocess import run_simulation
+from .simulation_subprocess import *
 from lccommon.net_util import get_subcircuit_ports
 import tempfile
 import logging
@@ -86,22 +86,11 @@ def characterize_input_capacitances(
     # create the simulation object
     analog_sim_obj = create_sim_object(simulator)
 
-    # Create a list of include files.
-    setup_statements_string = ''
-    for statement in cfg.setup_statements['library']:
-        setup_statements_string = "\n" + analog_sim_obj.netlist_library(statement)
-
-    for statement in cfg.setup_statements['include']:
-        setup_statements_string = "\n" + analog_sim_obj.netlist_include(statement)
-
-    setup_statements_string += "\n" + f".include {cell_conf.spice_netlist_file}"
-
 
     # Add output load capacitance. Right now this is 0F.
-    output_load_statements = "\n".join((f"Cload_{p} {p} GND 0" for p in output_pins))
 
     # Choose a maximum time to run the simulation.
-    time_max = cfg.time_step * 1e6
+    time_max = cfg.time_step * 1e3
 
     # Find function to summarize different timing arcs.
     reduction_function = {
@@ -166,8 +155,6 @@ def characterize_input_capacitances(
             else:
                 breakpoint_statement = f"stop when v({active_pin}) < {vdd * 0.1}"
 
-            static_supply_voltage_statements = "\n".join(
-                (f"Vinput_{net} {cell_conf.ground_net} {net} {voltage}" for net, voltage in input_voltages.items()))
 
             # Initial node voltages.
             initial_conditions = {
@@ -180,79 +167,104 @@ def characterize_input_capacitances(
             if active_pin_inverted:
                 initial_conditions[active_pin_inverted] = initial_voltage_inv
 
-            # Create SPICE statements for the input current sources that drive the active pin.
-            input_current_source_statements = [
-                f"Iinput {cell_conf.ground_net} {active_pin} PULSE(0 {_input_current} 1ns 10ps 0ps 100s)"
-            ]
-            if active_pin_inverted is not None:
-                input_current_source_statements.append(
-                    f"Iinput_inv {cell_conf.ground_net} {active_pin_inverted} PULSE(0 {-_input_current} 1ns 10ps 0ps 100s)"
-                )
-            input_current_source_statements = "\n".join(input_current_source_statements)
+
 
             # Create ngspice simulation script.
-            sim_netlist = f"""* librecell {__name__}
-.title Measure input capacitance of pin {active_pin}
+            sim_netlist  = analog_sim_obj.netlist_comment(f"""librecell {__name__}""") + "\n"
+            sim_netlist += analog_sim_obj.netlist_title(f"""Measure input capacitance of pin {active_pin}""") + "\n\n"
+            sim_netlist += analog_sim_obj.netlist_temperature(cfg.temperature) + "\n\n"
 
-.option TEMP={cfg.temperature}
 
-{setup_statements_string}
+            # Add include and library definitions.
+            if len(cfg.setup_statements['library']) > 0:
+                for statement in cfg.setup_statements['library']:
+                    sim_netlist += analog_sim_obj.netlist_library(statement[0], statement[1]) + "\n"
 
-Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
+            if len(cfg.setup_statements['include']) > 0:
+                for statement in cfg.setup_statements['include']:
+                    sim_netlist += analog_sim_obj.netlist_include(statement) + "\n"
+            sim_netlist += "\n"
+            sim_netlist += f".include {cell_conf.spice_netlist_file}\n"
 
-{output_load_statements}
+            # instantiate the DUT
+            sim_netlist += f"""Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}\n\n"""
 
-Vsupply {cell_conf.supply_net} {cell_conf.ground_net} {cfg.supply_voltage}
+            # add pin capacotance
+            for pin in output_pins:
+                sim_netlist += analog_sim_obj.netlist_capacitor(name         =  f"Cload_{pin}", 
+                                                                positive_net = pin, 
+                                                                negative_net = "GND",
+                                                                capacitance  = 0) + "\n"
+            
+            sim_netlist += analog_sim_obj.netlist_voltage_dc(cell_conf.supply_net, cfg.supply_voltage, negative=cell_conf.ground_net) + "\n"
 
-* Input current sources.
-{input_current_source_statements}
 
-* Static input voltages.
-{static_supply_voltage_statements}
+            # Create SPICE statements for the input current sources that drive the active pin.
+            sim_netlist += analog_sim_obj.netlist_current_pulse(name        = cell_conf.ground_net,
+                                                                value0      = 0, 
+                                                                value1      = _input_current, 
+                                                                delay       = 1e-9, 
+                                                                rise_time   = 10e-12, 
+                                                                fall_time   = 0, 
+                                                                pulse_width = 100, 
+                                                                negative    = active_pin) + "\n"
 
-* Initial conditions.
-* Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
-.ic {" ".join((f"v({net})={v}" for net, v in initial_conditions.items()))}
+            if active_pin_inverted is not None:
+                sim_netlist += analog_sim_obj.netlist_current_pulse(name        = active_pin_inverted,
+                                                                    value0      = 0,
+                                                                    value1      = -_input_current,
+                                                                    delay       = 1e-9,
+                                                                    rise_time   = 10e-12,
+                                                                    fall_time   = 0,
+                                                                    pulse_width = 100,
+                                                                    negative    = cell_conf.ground_net) + "\n"
+            
+            # add static voltage source
+            for net, voltage in input_voltages.items():
+                sim_netlist += analog_sim_obj.netlist_voltage_dc(net, voltage, negative=cell_conf.ground_net) + "\n"
+            sim_netlist += "\n"
 
-.control
+            # set inital conditions
+            sim_netlist += analog_sim_obj.netlist_initial_conditions(initial_conditions) + "\n\n"
 
-set filetype=ascii
-set wr_vecnames
-
-* Breakpoints
-{breakpoint_statement}
-
-* Transient simulation, use initial conditions.
-tran {cfg.time_step} {time_max} uic
-wrdata {sim_output_file} v({active_pin}) {" ".join((f"v({p})" for p in output_pins))}
-exit
-.endc
-
-.end
-"""
+            sim_netlist += analog_sim_obj.netlist_sim_tran(time_max, cfg.time_step, True) + "\n"
+            sim_netlist += analog_sim_obj.netlist_end() + "\n"
 
             # Dump netlist.
             logger.debug(sim_netlist)
 
-            # Dump simulation script to the file.
-            # logger.debug(f"Write simulation netlist: {sim_file}")
-            open(sim_file, "w").write(sim_netlist)
+            # Write the netlist to file
+            analog_sim_obj.write_netlist(sim_netlist)
 
-            # Run simulation.
-            stdout, stderr = run_simulation(sim_file)
+            # Start simulation.
+            logger.debug("Run simulation.")
+            analog_sim_obj.run_simulation()
 
-            # Fetch simulation results.
-            # logger.debug("Load simulation output.")
-            sim_data = np.loadtxt(sim_output_file, skiprows=1)
 
-            if sim_data.ndim != 2:
-                logger.error("Simulation failed. No data was written to the output file.")
-                if cfg.debug:
-                    logger.error(f"ngspice: {stderr}")
-                assert False, "Simulation failed. No data was written to the output file."
+            # extract the single dataset
+            data = analog_sim_obj.simulation_data[next(iter(analog_sim_obj.simulation_data))]
 
-            time = sim_data[:, 0]
-            input_voltage = sim_data[:, 1]
+            # Extract the time.
+            # TODO should find a more efficient way to deal with complex numbers from analog_sim library
+            time = np.array([np.real(_) for _ in data['time']])
+
+            # Collect the voltages.
+            # TODO should find a more efficient way to deal with complex numbers from analog_sim library
+            voltages = {}
+            for key in data.keys():
+                if key.startswith('v('):
+                    voltages[key[2:-1]] = np.array([np.real(_) for _ in data[key]])
+
+            # Collect the currents.
+            # TODO should find a more efficient way to deal with complex numbers from analog_sim library
+            currents = {}
+            for key in data.keys():
+                if key.startswith('i('):
+                    currents[key[2:-1]] = np.array([np.real(_) for _ in data[key]])
+
+
+            # Select simulation results.
+            input_voltage = voltages[active_pin.lower()]
 
             if cfg.debug_plots:
                 logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
