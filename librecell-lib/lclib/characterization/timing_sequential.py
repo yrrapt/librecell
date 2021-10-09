@@ -163,9 +163,16 @@ def find_minimum_pulse_width(
 
     supply_voltage = cfg.supply_voltage
 
-    # SPICE include files.
-    includes = [f".INCLUDE {cell_config.spice_netlist_file}"]
-    includes += cfg.setup_statements
+    # # SPICE include files.
+    # includes = [f"cell_config.spice_netlist_file"]
+    # includes += cfg.setup_statements
+    # setup_statements = {'library' : [],
+    #                     'include' : includes}
+
+    # Create a list of include files.
+    setup_statements = cfg.setup_statements
+    setup_statements['include'] += [cell_config.spice_netlist_file]
+
 
     # Load capacitance statements.
     if output_load_capacitances is None:
@@ -284,18 +291,19 @@ def find_minimum_pulse_width(
                 temperature=cfg.temperature,
                 output_load_capacitances=output_load_capacitances,
                 time_step=cfg.time_step,
-                setup_statements=includes,
+                setup_statements=setup_statements,
                 ground_net=cell_config.ground_net,
                 debug=cfg.debug,
             )
 
-            supply_current = currents[cell_config.supply_net]
-            input_voltage = voltages[data_in]
-            clock_voltage = voltages[clock_input]
-            output_voltage = voltages[data_out]
+            supply_current = currents['v'+cell_config.supply_net.lower()]
+            input_voltage = voltages[data_in.lower()]
+            clock_voltage = voltages[clock_input.lower()]
+            output_voltage = voltages[data_out.lower()]
 
             # Cut away the signals of the setup procedure.
             start_time = input_toggle_time
+                        
             assert start_time <= time[-1]
             start_index = np.arange(len(time))[time > start_time][0]
             time = time[start_index:]
@@ -593,7 +601,8 @@ def get_clock_to_output_delay(
 
     # Load include files.
     if setup_statements is None:
-        setup_statements = []
+        setup_statements = {'library'   :   [],
+                            'include'   :   []}
 
     period = max(clock_cycle_hint, input_rise_time + input_fall_time, clock_rise_time + clock_fall_time)
 
@@ -736,10 +745,10 @@ def get_clock_to_output_delay(
         debug=cfg.debug,
     )
 
-    supply_current = currents[supply_net]
-    input_voltage = voltages[data_in]
-    clock_voltage = voltages[clock_input]
-    output_voltage = voltages[data_out]
+    supply_current = currents['v'+supply_net.lower()]
+    input_voltage = voltages[data_in.lower()]
+    clock_voltage = voltages[clock_input.lower()]
+    output_voltage = voltages[data_out.lower()]
 
     if cfg.debug_plots:
         # Plot data in debug mode.
@@ -968,9 +977,9 @@ def measure_flip_flop_setup_hold(
 
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
 
-    # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
-    includes += cfg.setup_statements
+    # Create a list of include files.
+    setup_statements = cfg.setup_statements
+    setup_statements['include'] += [cell_conf.spice_netlist_file]
 
     vdd = cfg.supply_voltage
 
@@ -1012,7 +1021,7 @@ def measure_flip_flop_setup_hold(
                 clock_fall_time=clock_fall_time,
                 output_load_capacitances=output_load_capacitances,
                 clock_cycle_hint=clock_cycle_hint,
-                setup_statements=includes,
+                setup_statements=setup_statements,
                 input_voltages=static_input_voltages,
             )
             cache[cache_tag] = result
