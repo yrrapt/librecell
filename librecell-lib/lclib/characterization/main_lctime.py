@@ -176,7 +176,7 @@ def abort(message: str, exit_code=1):
     exit(exit_code)
 
 
-def main():
+def main(passed_args=None):
     """
     Command-line tool for cell characterization.
     Currently only combinatorial cells are supported excluding tri-state cells.
@@ -262,7 +262,7 @@ def main():
                         help='Create debug plots of simulation waveforms.')
 
     # Parse arguments
-    args = parser.parse_args()
+    args = parser.parse_args(passed_args)
 
     DEBUG = args.debug
     log_level = logging.DEBUG if DEBUG else logging.INFO
