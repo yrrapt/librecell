@@ -46,7 +46,7 @@ def characterize_input_capacitances(
         active_pin: str,
         output_pins: List[str],
         cell_conf: CellConfig,
-        simulator: str = 'ngspice'
+        simulator: str
 ):
     """
     Estimate the input capacitance of the `active_pin`.
@@ -59,7 +59,7 @@ def characterize_input_capacitances(
     :param active_pin: Name of the pin to be measured.
     :param output_pins: List of cell output pins.
     :param config: Parameters for the characterization.
-    :param simulator: Specify the simulator to use, defaults to ngspice
+    :param simulator: Specify the simulator to use
 
     """
 
@@ -193,10 +193,11 @@ def characterize_input_capacitances(
             for pin in output_pins:
                 sim_netlist += analog_sim_obj.netlist_capacitor(name         =  f"Cload_{pin}", 
                                                                 positive_net = pin, 
-                                                                negative_net = "GND",
+                                                                negative_net = cell_conf.ground_net,
                                                                 capacitance  = 0) + "\n"
             
             sim_netlist += analog_sim_obj.netlist_voltage_dc(cell_conf.supply_net, cfg.supply_voltage, negative=cell_conf.ground_net) + "\n"
+            sim_netlist += analog_sim_obj.netlist_voltage_dc(cell_conf.ground_net, 0, negative='0') + "\n"
 
 
             # Create SPICE statements for the input current sources that drive the active pin.
@@ -240,13 +241,14 @@ def characterize_input_capacitances(
             logger.debug("Run simulation.")
             analog_sim_obj.run_simulation()
 
-
             # extract the single dataset
-            data = analog_sim_obj.simulation_data[next(iter(analog_sim_obj.simulation_data))]
+            # data = analog_sim_obj.simulation_data[next(iter(analog_sim_obj.simulation_data))]
+            data = analog_sim_obj.simulation_data
 
             # Extract the time.
             # TODO should find a more efficient way to deal with complex numbers from analog_sim library
-            time = np.array([np.real(_) for _ in data['time']])
+            time = np.array([np.real(_) for _ in data['time']['data']])
+            # time = np.array([np.real(_) for _ in data['data']])
 
             # Collect the voltages.
             # TODO should find a more efficient way to deal with complex numbers from analog_sim library
@@ -254,6 +256,8 @@ def characterize_input_capacitances(
             for key in data.keys():
                 if key.startswith('v('):
                     voltages[key[2:-1]] = np.array([np.real(_) for _ in data[key]])
+                if data[key]['units'] == 'voltage':
+                    voltages[key] = np.array([np.real(_) for _ in data[key]['data']])
 
             # Collect the currents.
             # TODO should find a more efficient way to deal with complex numbers from analog_sim library
@@ -261,7 +265,8 @@ def characterize_input_capacitances(
             for key in data.keys():
                 if key.startswith('i('):
                     currents[key[2:-1]] = np.array([np.real(_) for _ in data[key]])
-
+                if data[key]['units'] == 'current':
+                    currents[key] = np.array([np.real(_) for _ in data[key]['data']])
 
             # Select simulation results.
             input_voltage = voltages[active_pin.lower()]

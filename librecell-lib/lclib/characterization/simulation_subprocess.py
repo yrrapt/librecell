@@ -37,27 +37,27 @@ from analog_sim.spice.generic import create_sim_object
 logger = logging.getLogger(__name__)
 
 
-def run_simulation(sim_file: str, ngspice_executable: str = 'ngspice'):
-    """
-    Invoke 'ngspice' to run the `sim_file`.
-    :param sim_file: Path to ngspice simulation file.
-    :return: Returns (stdout, stderr) outputs of ngspice.
-    """
-    logger.debug(f"Run simulation: {sim_file}")
-    try:
-        ret = subprocess.run([ngspice_executable, sim_file], capture_output=True)
-        # proc = subprocess.Popen([ngspice_executable, sim_file])
-        # logger.debug(f"Subprocess return value: {ret}")
-        if ret.returncode != 0:
-            ngspice_err_message = ret.stderr.decode("utf-8")
-            logger.error(f"ngspice simulation failed: {ngspice_err_message}")
-            raise Exception(f"ngspice simulation failed: {ngspice_err_message}")
+# def run_simulation(sim_file: str, ngspice_executable: str = 'ngspice'):
+#     """
+#     Invoke 'ngspice' to run the `sim_file`.
+#     :param sim_file: Path to ngspice simulation file.
+#     :return: Returns (stdout, stderr) outputs of ngspice.
+#     """
+#     logger.debug(f"Run simulation: {sim_file}")
+#     try:
+#         ret = subprocess.run([ngspice_executable, sim_file], capture_output=True)
+#         # proc = subprocess.Popen([ngspice_executable, sim_file])
+#         # logger.debug(f"Subprocess return value: {ret}")
+#         if ret.returncode != 0:
+#             ngspice_err_message = ret.stderr.decode("utf-8")
+#             logger.error(f"ngspice simulation failed: {ngspice_err_message}")
+#             raise Exception(f"ngspice simulation failed: {ngspice_err_message}")
 
-        return ret.stdout.decode("utf-8"), ret.stderr.decode("utf-8")
-    except FileNotFoundError as e:
-        msg = f"SPICE simulator executable not found. Make sure it is in the current path: {ngspice_executable}"
-        logger.error(msg)
-        raise FileNotFoundError(msg)
+#         return ret.stdout.decode("utf-8"), ret.stderr.decode("utf-8")
+#     except FileNotFoundError as e:
+#         msg = f"SPICE simulator executable not found. Make sure it is in the current path: {ngspice_executable}"
+#         logger.error(msg)
+#         raise FileNotFoundError(msg)
 
 
 def simulate_cell(
@@ -71,13 +71,13 @@ def simulate_cell(
         simulation_file: str,
         simulation_output_file: str,
         max_simulation_time: float,
+        simulator: str,
         simulation_title: str = "<UNTITLED SIMULATION>",
         temperature: float = 25,
         output_load_capacitances: Dict[str, float] = None,
         time_step: float = 100.0e-12,
         setup_statements: List[str] = None,
         ground_net: str = 'GND',
-        simulator: str = 'ngspice',
         debug: bool = False,
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
     """Simulate a circuit with given input signals and measure voltages and currents.
@@ -219,6 +219,7 @@ def simulate_cell(
     sim_netlist += analog_sim_obj.netlist_comment("Static input and supply voltages.") + "\n"
     for net, voltage in input_voltages_static.items():
         sim_netlist += create_voltage_source_statement(net, voltage) + "\n"
+    sim_netlist += analog_sim_obj.netlist_voltage_dc(ground_net, 0, negative='0') + "\n"
     sim_netlist += "\n"
 
     # Add the actice voltages.
@@ -243,11 +244,11 @@ def simulate_cell(
     analog_sim_obj.run_simulation()
 
     # extract the single dataset
-    data = analog_sim_obj.simulation_data[next(iter(analog_sim_obj.simulation_data))]
+    data = analog_sim_obj.simulation_data
 
     # Extract the time.
     # TODO should find a more efficient way to deal with complex numbers from analog_sim library
-    time = np.array([np.real(_) for _ in data['time']])
+    time = np.array([np.real(_) for _ in data['time']['data']])
 
     # Collect the voltages.
     # TODO should find a more efficient way to deal with complex numbers from analog_sim library
@@ -255,6 +256,8 @@ def simulate_cell(
     for key in data.keys():
         if key.startswith('v('):
             voltages[key[2:-1]] = np.array([np.real(_) for _ in data[key]])
+        if data[key]['units'] == 'voltage':
+            voltages[key] = np.array([np.real(_) for _ in data[key]['data']])
 
     # Collect the currents.
     # TODO should find a more efficient way to deal with complex numbers from analog_sim library
@@ -262,5 +265,7 @@ def simulate_cell(
     for key in data.keys():
         if key.startswith('i('):
             currents[key[2:-1]] = np.array([np.real(_) for _ in data[key]])
+        if data[key]['units'] == 'current':
+            currents[key] = np.array([np.real(_) for _ in data[key]['data']])
 
     return time, voltages, currents

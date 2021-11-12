@@ -48,7 +48,8 @@ def characterize_comb_cell(
 
         cell_conf: CellConfig,
 
-        constant_inputs: Dict[str, bool] = dict()
+        simulator: str,
+        constant_inputs: Dict[str, bool] = dict(),
 
 ) -> Dict[str, np.ndarray]:
     """
@@ -61,6 +62,7 @@ def characterize_comb_cell(
     :param output_pin: The output pin of the timing arc.
     :param related_pin: The input pin of the timing arc.
     :param output_functions: A dict mapping output pin names to corresponding boolean functions.
+    :param simulator: Specify the simulator to use.
 
     :return: Returns the NDLM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
@@ -236,11 +238,20 @@ def characterize_comb_cell(
                     time_step=cfg.time_step,
                     setup_statements=setup_statements,
                     ground_net=cell_conf.ground_net,
+                    simulator=simulator,
                     debug=cfg.debug,
                 )
 
                 # Retrieve data.
-                supply_current = currents['v'+cell_conf.supply_net.lower()]
+                try:
+                    supply_current = currents['v'+cell_conf.supply_net.lower()]
+                except:
+                    pass
+                try:
+                    supply_current = currents['v'+cell_conf.supply_net.lower()+'#branch']
+                except:
+                    pass
+                
                 input_voltage = voltages[related_pin.lower()]
                 output_voltage = voltages[output_pin.lower()]
 

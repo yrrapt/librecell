@@ -219,6 +219,10 @@ def main(passed_args=None):
                         help='Calculation mode for computing the default timing arc'
                              ' based on the conditional timing arcs. "worst", "typical" (average) or "best".')
 
+    parser.add_argument('--simulator', metavar='SIMULATOR', type=str,
+                        default='ngspice',
+                        help='Select the simulator to use.')
+
     parser.add_argument('-o', '--output', required=True, metavar='LIBERTY_OUT', type=str, help='Output liberty file.')
 
     parser.add_argument('--workingdir', required=False, metavar='WORKDIR', type=str,
@@ -850,7 +854,8 @@ def main(passed_args=None):
                     input_pins=input_pins,
                     active_pin=input_pin,
                     output_pins=output_pins,
-                    cell_conf=cell_conf
+                    cell_conf=cell_conf,
+                    simulator=args.simulator
                 )
 
                 input_pin_group['rise_capacitance'] = result['rise_capacitance'] * capacitance_unit_inv
@@ -920,7 +925,8 @@ def main(passed_args=None):
                         input_net_transition=input_transition_times,
 
                         cell_conf=cell_conf,
-                        constant_inputs=constant_input_pins
+                        constant_inputs=constant_input_pins,
+                        simulator=args.simulator
                     )
 
                     # Get the table indices.

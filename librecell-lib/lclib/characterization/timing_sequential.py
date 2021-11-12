@@ -53,6 +53,7 @@ def ff_find_stabilization_time(
         rising_data_edge: bool,
         clock_rise_time: float,
         clock_fall_time: float,
+        simulator: str,
         output_load_capacitances: Dict[str, float] = None,
         time_step: float = 100.0e-12,
         max_simulation_time: float = 1e-7,
@@ -69,6 +70,7 @@ def ff_find_stabilization_time(
     :param clock_fall_time: Fall time of the clock signal.
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
     :param time_step: Simulation time step.
+    :param simulator: Simulator to use.
     """
 
     cfg = cell_config.global_conf
@@ -110,6 +112,7 @@ def ff_find_stabilization_time(
         time_step=time_step,
         setup_statements=cfg.setup_statements,
         ground_net=cfg.ground_net,
+        simulator=simulator,
         debug=cfg.debug,
     )
 
@@ -128,6 +131,7 @@ def find_minimum_pulse_width(
         clock_rise_time: float,
         clock_fall_time: float,
         clock_pulse_width_guess: float,
+        simulator: str,
         output_load_capacitances: Dict[str, float] = None,
         max_delay_estimation: float = 1e-7,
         static_input_voltages: Dict[str, float] = None,
@@ -151,6 +155,7 @@ def find_minimum_pulse_width(
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
     :param static_input_voltages: Static input voltages.
         This can be used to set the voltage of static input signals such as scan-enable.
+    :param simulator: The simulator to use.
     :return: Returns a tuple of the minimal clock pulse width such that the data signal is sampled and the corresponding delay.
         (min clock pulse width, clock-to-output delay)
     """
@@ -293,6 +298,7 @@ def find_minimum_pulse_width(
                 time_step=cfg.time_step,
                 setup_statements=setup_statements,
                 ground_net=cell_config.ground_net,
+                simulator=simulator,
                 debug=cfg.debug,
             )
 
