@@ -22,6 +22,7 @@ from lclayout.data_types import *
 import networkx as nx
 from typing import Tuple, List, Set, Iterable
 import klayout.db as db
+import re
 
 import logging
 
@@ -48,8 +49,20 @@ def load_netlist(path: str) -> db.Netlist:
     :param path: Path to the spice file.
     :return: Return a KLayout Netlist object.
     """
+
+    # create version of file with subcircuit mosfet definitions converted to mosfets
+    with(open(path)) as f:
+        netlist = f.read()
+    
+    netlist = re.sub(r'\nxm', r'\nm', netlist)
+
+    path_mod = path+'_mod'
+    with(open(path_mod, 'w')) as f:
+        f.write(netlist)
+
+
     netlist = db.Netlist()
-    netlist.read(path, db.NetlistSpiceReader())
+    netlist.read(path_mod, db.NetlistSpiceReader())
     return netlist
 
 
